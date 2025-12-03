@@ -64,10 +64,22 @@ test-unit: envtest ## Run unit tests only.
 	@echo "Running unit tests..."
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(GOTEST) -v -short ./...
 
+.PHONY: test-unit-coverage
+test-unit-coverage: envtest ## Run unit tests with coverage.
+	@echo "Running unit tests with coverage..."
+	@mkdir -p $(COVERAGE_DIR)
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(GOTEST) -v -short -coverprofile=$(COVERAGE_DIR)/unit.out -covermode=atomic ./...
+
 .PHONY: test-integration
 test-integration: envtest ## Run integration tests only.
 	@echo "Running integration tests..."
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(GOTEST) -v -tags=integration -count=1 -timeout=60m ./test/integration/...
+
+.PHONY: test-integration-coverage
+test-integration-coverage: envtest ## Run integration tests with coverage.
+	@echo "Running integration tests with coverage..."
+	@mkdir -p $(COVERAGE_DIR)
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(GOTEST) -v -tags=integration -count=1 -timeout=60m -coverprofile=$(COVERAGE_DIR)/integration.out -covermode=atomic -coverpkg=./... ./test/integration/...
 
 .PHONY: test-e2e
 test-e2e: ## Run E2E tests against a running Kind cluster.
@@ -126,6 +138,32 @@ coverage-ci: envtest ## Generate CI coverage report.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(GOTEST) -coverprofile=$(COVERAGE_DIR)/coverage.out ./...
 	$(GOCMD) tool cover -func=$(COVERAGE_DIR)/coverage.out > $(COVERAGE_DIR)/coverage.txt
 	@grep "total:" $(COVERAGE_DIR)/coverage.txt
+.PHONY: coverage-merge
+coverage-merge: ## Merge unit and integration coverage profiles.
+	@echo "Merging coverage profiles..."
+	@mkdir -p $(COVERAGE_DIR)
+	@# Install gocovmerge if not present
+	@which gocovmerge > /dev/null || (echo "Installing gocovmerge..." && go install github.com/wadey/gocovmerge@latest)
+	@# Merge coverage files
+	gocovmerge $(COVERAGE_DIR)/unit.out $(COVERAGE_DIR)/integration.out > $(COVERAGE_DIR)/combined.out
+	$(GOCMD) tool cover -func=$(COVERAGE_DIR)/combined.out > $(COVERAGE_DIR)/combined.txt
+	@echo "Combined coverage:"
+	@grep "total:" $(COVERAGE_DIR)/combined.txt
+
+.PHONY: coverage-json
+coverage-json: ## Generate coverage badge JSON for shields.io.
+	@echo "Generating coverage badge JSON..."
+	@mkdir -p .github/badges
+	@COVERAGE=$$(grep "total:" $(COVERAGE_DIR)/combined.txt | awk '{print $$3}' | sed 's/%//'); \
+	COLOR="red"; \
+	if [ $$(echo "$$COVERAGE >= 80" | bc -l) -eq 1 ]; then COLOR="brightgreen"; \
+	elif [ $$(echo "$$COVERAGE >= 60" | bc -l) -eq 1 ]; then COLOR="green"; \
+	elif [ $$(echo "$$COVERAGE >= 40" | bc -l) -eq 1 ]; then COLOR="yellow"; \
+	elif [ $$(echo "$$COVERAGE >= 20" | bc -l) -eq 1 ]; then COLOR="orange"; \
+	fi; \
+	echo "{\"schemaVersion\":1,\"label\":\"coverage\",\"message\":\"$$COVERAGE%\",\"color\":\"$$COLOR\"}" > .github/badges/coverage.json
+	@echo "Badge JSON created at .github/badges/coverage.json"
+	@cat .github/badges/coverage.json
 
 ##@ Security
 

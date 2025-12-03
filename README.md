@@ -1,6 +1,7 @@
 # Kubernetes Secret Operator
 
-[![Build Status](https://github.com/guided-traffic/k8s-secret-operator/actions/workflows/build.yml/badge.svg)](https://github.com/guided-traffic/k8s-secret-operator/actions)
+[![Build Status](https://github.com/guided-traffic/k8s-secret-operator/actions/workflows/release.yml/badge.svg)](https://github.com/guided-traffic/k8s-secret-operator/actions)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/guided-traffic/k8s-secret-operator/main/.github/badges/coverage.json)](https://github.com/guided-traffic/k8s-secret-operator)
 [![Go Report Card](https://goreportcard.com/badge/github.com/guided-traffic/k8s-secret-operator)](https://goreportcard.com/report/github.com/guided-traffic/k8s-secret-operator)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 

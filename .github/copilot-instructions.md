@@ -280,7 +280,7 @@ k8s-secret-operator/
 ### CI/CD
 
 - [x] Integrate integration tests (envtest) into CI pipeline
-- [ ] Generate combined line coverage report (unit tests + integration tests)
+- [x] Generate combined line coverage report (unit tests + integration tests)
 
 ### Documentation
 

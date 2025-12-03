@@ -246,7 +246,7 @@ k8s-secret-operator/
 ### Code Changes Required
 
 - [x] Update annotation prefix from `secret-generator.v1.guided-traffic.com/` to `secgen.gtrfc.com/`
-- [ ] Remove `regenerate` annotation support
+- [x] Remove `regenerate` annotation support
 - [ ] Remove `uuid` and `hex` generation types
 - [ ] Rename `base64` type to `bytes`
 - [ ] Implement field-specific type/length configuration (`type.<field>`, `length.<field>`)

@@ -51,9 +51,6 @@ const (
 
 	// AnnotationGeneratedAt indicates when the value was generated
 	AnnotationGeneratedAt = AnnotationPrefix + "generated-at"
-
-	// AnnotationRegenerate forces regeneration of the secret
-	AnnotationRegenerate = AnnotationPrefix + "regenerate"
 )
 
 // SecretReconciler reconciles a Secret object
@@ -98,9 +95,6 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	genType := r.getAnnotationOrDefault(secret.Annotations, AnnotationType, r.DefaultType)
 	length := r.getLengthAnnotation(secret.Annotations)
 
-	// Check if regeneration is requested
-	regenerate := secret.Annotations[AnnotationRegenerate] == "true"
-
 	// Initialize data map if nil
 	if secret.Data == nil {
 		secret.Data = make(map[string][]byte)
@@ -111,8 +105,8 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// Generate values for each field
 	for _, field := range fields {
-		// Skip if field already has a value and regeneration is not requested
-		if _, exists := secret.Data[field]; exists && !regenerate {
+		// Skip if field already has a value
+		if _, exists := secret.Data[field]; exists {
 			logger.V(1).Info("Field already has value, skipping", "field", field)
 			continue
 		}
@@ -140,9 +134,6 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		secret.Annotations[AnnotationType] = genType
 		secret.Annotations[AnnotationSecure] = "yes"
 		secret.Annotations[AnnotationGeneratedAt] = time.Now().Format(time.RFC3339)
-
-		// Remove regenerate annotation if present
-		delete(secret.Annotations, AnnotationRegenerate)
 
 		// Update the secret
 		if err := r.Update(ctx, &secret); err != nil {

@@ -245,26 +245,8 @@ func TestReconcile(t *testing.T) {
 					"password": []byte("ZXhpc3Rpbmc="), // "existing" base64 encoded
 				},
 			},
-			expectGenerate: false, // Should not regenerate existing values
+			expectGenerate: false, // Should not overwrite existing values
 			expectFields:   nil,
-		},
-		{
-			name: "secret with regenerate annotation",
-			secret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-secret",
-					Namespace: "default",
-					Annotations: map[string]string{
-						AnnotationAutogenerate: "password",
-						AnnotationRegenerate:   "true",
-					},
-				},
-				Data: map[string][]byte{
-					"password": []byte("ZXhpc3Rpbmc="),
-				},
-			},
-			expectGenerate: true, // Should regenerate when regenerate=true
-			expectFields:   []string{"password"},
 		},
 	}
 
@@ -319,11 +301,6 @@ func TestReconcile(t *testing.T) {
 
 				if _, ok := updatedSecret.Annotations[AnnotationGeneratedAt]; !ok {
 					t.Error("expected generated-at annotation to be set")
-				}
-
-				// Verify regenerate annotation was removed
-				if _, ok := updatedSecret.Annotations[AnnotationRegenerate]; ok {
-					t.Error("expected regenerate annotation to be removed")
 				}
 			}
 		})

@@ -10,8 +10,7 @@ A Kubernetes operator that automatically generates random secret values. Use it 
 
 - 🔐 **Automatic Secret Generation** - Automatically generates cryptographically secure random values for Kubernetes Secrets
 - 🎯 **Annotation-Based** - Simple annotation-based configuration, no CRDs required
-- 🔄 **Regeneration Support** - Force regeneration of secrets when needed
-- 📏 **Configurable Length** - Customize the length of generated secrets
+-  **Configurable Length** - Customize the length of generated secrets
 - 🔢 **Multiple Types** - Support for string, base64, UUID, and hex generation
 - ✅ **Idempotent** - Only generates values for empty fields, preserves existing data
 
@@ -76,7 +75,35 @@ All annotations use the prefix `secgen.gtrfc.com/`:
 | `autogenerate` | Comma-separated list of field names to auto-generate | *required* |
 | `type` | Type of generated value: `string`, `base64`, `uuid`, `hex` | `string` |
 | `length` | Length of generated string | `32` |
-| `regenerate` | Set to `true` to force regeneration | - |
+
+### Regenerating Secrets
+
+The operator respects existing values and will **not** overwrite them. To regenerate a secret value, you have two options:
+
+#### Option 1: Delete and recreate the Secret
+
+```bash
+kubectl delete secret my-secret
+kubectl apply -f my-secret.yaml
+```
+
+#### Option 2: Delete specific keys from the Secret
+
+To regenerate only specific fields, delete those keys from the Secret's data:
+
+```bash
+# Using kubectl patch to remove a specific key
+kubectl patch secret my-secret --type=json -p='[{"op": "remove", "path": "/data/password"}]'
+```
+
+Or edit the Secret directly:
+
+```bash
+kubectl edit secret my-secret
+# Remove the key you want to regenerate from the data section
+```
+
+The operator will automatically detect the missing field and generate a new value for it.
 
 ### Examples
 
@@ -116,21 +143,6 @@ metadata:
     secgen.gtrfc.com/autogenerate: client-id
     secgen.gtrfc.com/type: uuid
 type: Opaque
-```
-
-#### Force regeneration
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: regenerate-secret
-  annotations:
-    secgen.gtrfc.com/autogenerate: password
-    secgen.gtrfc.com/regenerate: "true"
-type: Opaque
-data:
-  password: b2xkLXBhc3N3b3Jk  # This will be replaced
 ```
 
 ## Development

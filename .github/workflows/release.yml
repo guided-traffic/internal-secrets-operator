@@ -235,12 +235,10 @@ jobs:
 
       - name: Build and load operator image
         run: |
-          # Build image and save as tar archive
-          docker build -f Containerfile -t k8s-secret-operator:test .
-          docker save k8s-secret-operator:test -o /tmp/operator-image.tar
-          # Load via tar archive to avoid ctr import issues
-          kind load image-archive /tmp/operator-image.tar --name secret-operator-test
-          rm /tmp/operator-image.tar
+          make docker-build IMG=k8s-secret-operator:test
+          # Import image - containerd will automatically use the native snapshotter from config
+          # Don't specify --snapshotter flag to avoid platform unpacking issues
+          docker save k8s-secret-operator:test | docker exec -i secret-operator-test-control-plane ctr --namespace=k8s.io images import -
 
       - name: Install Helm
         uses: azure/setup-helm@v4

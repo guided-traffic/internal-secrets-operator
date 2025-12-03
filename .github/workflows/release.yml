@@ -200,6 +200,11 @@ jobs:
           username: guidedtraffic
           password: ${{ secrets.DOCKERHUB_PAT }}
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker
+
       - name: Create Kind config for DinD
         run: |
           cat << EOF > kind-config.yaml

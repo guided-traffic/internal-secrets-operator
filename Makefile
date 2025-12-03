@@ -153,7 +153,7 @@ run: fmt vet ## Run a controller from your host.
 
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	docker build -f Containerfile -t ${IMG} .
+	DOCKER_BUILDKIT=1 docker build -f Containerfile -t ${IMG} .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.

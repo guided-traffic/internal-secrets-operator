@@ -164,7 +164,7 @@ run: fmt vet ## Run a controller from your host.
 
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	docker build -t ${IMG} .
+	docker build -f Containerfile -t ${IMG} .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
@@ -174,7 +174,7 @@ docker-push: ## Push docker image with the manager.
 docker-buildx: ## Build and push docker image for cross-platform support.
 	- docker buildx create --name project-builder
 	docker buildx use project-builder
-	docker buildx build --push --platform=linux/amd64,linux/arm64 --tag ${IMG} .
+	docker buildx build -f Containerfile --push --platform=linux/amd64,linux/arm64 --tag ${IMG} .
 	docker buildx rm project-builder
 
 ##@ Deployment

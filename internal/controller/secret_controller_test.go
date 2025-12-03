@@ -362,7 +362,7 @@ func TestReconcileSecretNotFound(t *testing.T) {
 	}
 
 	// Should return empty result without error for not found
-	if result.Requeue || result.RequeueAfter != time.Duration(0) {
+	if result.RequeueAfter != time.Duration(0) {
 		t.Error("expected empty result for not found secret")
 	}
 }

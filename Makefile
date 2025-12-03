@@ -4,6 +4,14 @@ IMG ?= ghcr.io/guided-traffic/k8s-secret-generator:latest
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.29.0
 
+# Go commands
+GOCMD = go
+GOTEST = $(GOCMD) test
+GOFMT = gofmt
+
+# Coverage directory
+COVERAGE_DIR = coverage
+
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
@@ -28,15 +36,20 @@ help: ## Display this help.
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
-	go fmt ./...
+	@echo "Formatting code..."
+	$(GOFMT) -s -w .
 
 .PHONY: vet
 vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: lint
-lint: golangci-lint ## Run golangci-lint linter.
-	$(GOLANGCI_LINT) run
+lint: ## Run linting.
+	@echo "Running static analysis..."
+	go vet ./...
+	$(GOFMT) -l .
+	@which golangci-lint > /dev/null || (echo "Installing golangci-lint..." && go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION))
+	golangci-lint run --timeout=5m
 
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes.
@@ -46,9 +59,52 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes.
 test: fmt vet envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./... -coverprofile cover.out
 
+.PHONY: test-unit
+test-unit: envtest ## Run unit tests only.
+	@echo "Running unit tests..."
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(GOTEST) -v -short ./...
+
+.PHONY: test-integration
+test-integration: ## Run integration tests only.
+	@echo "Running integration tests..."
+	$(GOTEST) -v -tags=integration -count=1 -timeout=60m ./test/integration/...
+
 .PHONY: test-coverage
 test-coverage: test ## Run tests and show coverage report.
 	go tool cover -html=cover.out -o coverage.html
+
+.PHONY: coverage
+coverage: envtest ## Generate test coverage report.
+	@echo "Generating coverage report..."
+	@mkdir -p $(COVERAGE_DIR)
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(GOTEST) -coverprofile=$(COVERAGE_DIR)/coverage.out ./...
+	$(GOCMD) tool cover -html=$(COVERAGE_DIR)/coverage.out -o $(COVERAGE_DIR)/coverage.html
+	$(GOCMD) tool cover -func=$(COVERAGE_DIR)/coverage.out > $(COVERAGE_DIR)/coverage.txt
+	@echo "Coverage report generated at $(COVERAGE_DIR)/coverage.html"
+	@echo "Coverage summary:"
+	@grep "total:" $(COVERAGE_DIR)/coverage.txt
+
+.PHONY: coverage-ci
+coverage-ci: envtest ## Generate CI coverage report.
+	@echo "Generating CI coverage report..."
+	@mkdir -p $(COVERAGE_DIR)
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(GOTEST) -coverprofile=$(COVERAGE_DIR)/coverage.out ./...
+	$(GOCMD) tool cover -func=$(COVERAGE_DIR)/coverage.out > $(COVERAGE_DIR)/coverage.txt
+	@grep "total:" $(COVERAGE_DIR)/coverage.txt
+
+##@ Security
+
+.PHONY: gosec
+gosec: ## Run gosec security scan.
+	@echo "Running gosec security scan..."
+	@which gosec > /dev/null || (echo "Installing gosec..." && go install github.com/securego/gosec/v2/cmd/gosec@v2.22.0)
+	GOFLAGS="-buildvcs=false" gosec ./...
+
+.PHONY: vuln
+vuln: ## Check for vulnerabilities.
+	@echo "Checking for vulnerabilities..."
+	@which govulncheck > /dev/null || (echo "Installing govulncheck..." && go install golang.org/x/vuln/cmd/govulncheck@latest)
+	GOFLAGS="-buildvcs=false" govulncheck ./...
 
 ##@ Build
 

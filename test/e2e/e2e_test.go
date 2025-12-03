@@ -47,6 +47,12 @@ const (
 	// AnnotationLength specifies the length of the generated value
 	AnnotationLength = AnnotationPrefix + "length"
 
+	// AnnotationTypePrefix is the prefix for field-specific type annotations
+	AnnotationTypePrefix = AnnotationPrefix + "type."
+
+	// AnnotationLengthPrefix is the prefix for field-specific length annotations
+	AnnotationLengthPrefix = AnnotationPrefix + "length."
+
 	// AnnotationGeneratedAt indicates when the value was generated
 	AnnotationGeneratedAt = AnnotationPrefix + "generated-at"
 
@@ -70,6 +76,7 @@ var testSecretNames = []string{
 	"test-regenerate-by-deletion",
 	"test-no-annotation",
 	"test-existing-value",
+	"test-field-specific",
 }
 
 func TestMain(m *testing.M) {
@@ -505,4 +512,68 @@ func TestSecretExistingValuePreserved(t *testing.T) {
 	}
 
 	t.Log("Existing value correctly preserved, new field generated")
+}
+
+func TestSecretFieldSpecificConfig(t *testing.T) {
+	defer cleanupSecret(t, "test-field-specific")
+
+	ctx := context.Background()
+
+	// Create a secret with field-specific type and length overrides
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-field-specific",
+			Namespace: testNamespace,
+			Annotations: map[string]string{
+				AnnotationAutogenerate:              "password,encryption-key",
+				AnnotationType:                      "string",
+				AnnotationLength:                    "24",
+				AnnotationTypePrefix + "encryption-key":   "bytes",
+				AnnotationLengthPrefix + "encryption-key": "32",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{},
+	}
+
+	_, err := clientset.CoreV1().Secrets(testNamespace).Create(ctx, secret, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("Failed to create secret: %v", err)
+	}
+
+	// Wait for the operator to process the secret
+	var processedSecret *corev1.Secret
+	err = wait.PollUntilContextTimeout(ctx, pollInterval, pollTimeout, true, func(ctx context.Context) (bool, error) {
+		s, err := clientset.CoreV1().Secrets(testNamespace).Get(ctx, "test-field-specific", metav1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+
+		_, hasPassword := s.Data["password"]
+		_, hasEncryptionKey := s.Data["encryption-key"]
+
+		if hasPassword && hasEncryptionKey && s.Annotations[AnnotationGeneratedAt] != "" {
+			processedSecret = s
+			return true, nil
+		}
+		return false, nil
+	})
+
+	if err != nil {
+		t.Fatalf("Timeout waiting for secret to be processed: %v", err)
+	}
+
+	// Verify password is a string with length 24
+	password := string(processedSecret.Data["password"])
+	if len(password) != 24 {
+		t.Errorf("Expected password length 24, got %d", len(password))
+	}
+
+	// Verify encryption-key is bytes with length 32
+	encryptionKey := processedSecret.Data["encryption-key"]
+	if len(encryptionKey) != 32 {
+		t.Errorf("Expected encryption-key length 32 bytes, got %d", len(encryptionKey))
+	}
+
+	t.Log("Field-specific configuration correctly applied")
 }

@@ -1,70 +1,26 @@
-# Helm values for E2E testing
 # Used when installing the operator in Kind cluster
 #
-# Note: For CI pipeline, override with:
+# For CI pipeline, override image with:
 #   --set image.repository=k8s-secret-operator --set image.tag=test
-
-replicaCount: 1
 
 image:
   repository: ghcr.io/guided-traffic/k8s-secret-operator
   pullPolicy: Never  # Image is loaded directly into Kind
   tag: "latest"
 
-# Disable imagePullSecrets for local testing
-imagePullSecrets: []
-
 controller:
-  defaultLength: 32
-  defaultType: "string"
   leaderElection: false  # Single replica, no need for leader election
 
-serviceAccount:
-  create: true
-  automount: true
-  annotations: {}
-
-rbac:
-  create: true
-
-podSecurityContext:
-  runAsNonRoot: true
-  seccompProfile:
-    type: RuntimeDefault
-
-securityContext:
-  allowPrivilegeEscalation: false
-  capabilities:
-    drop:
-      - ALL
-  readOnlyRootFilesystem: true
-  runAsNonRoot: true
-  runAsUser: 65532
-
-# Reduce resources for testing
-resources:
-  limits:
-    cpu: 200m
-    memory: 128Mi
-  requests:
-    cpu: 10m
-    memory: 64Mi
-
-# Health probes with shorter intervals for faster feedback
+# Faster health probes for quicker test feedback
 livenessProbe:
-  httpGet:
-    path: /healthz
-    port: health
   initialDelaySeconds: 5
   periodSeconds: 10
 
 readinessProbe:
-  httpGet:
-    path: /readyz
-    port: health
   initialDelaySeconds: 3
   periodSeconds: 5
 
-# Disable service monitor for tests
-serviceMonitor:
-  enabled: false
+# Reduced CPU limit for testing
+resources:
+  limits:
+    cpu: 200m

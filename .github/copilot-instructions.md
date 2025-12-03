@@ -258,6 +258,7 @@ k8s-secret-operator/
 - [x] Add configurable charset for `string` type (uppercase, lowercase, numbers, specialChars, allowedSpecialChars)
 - [x] Add validation: at least one charset option must be enabled
 - [x] Implement Warning Events on Secrets when errors occur
+- [ ] Implement per-Secret charset annotations (`string.uppercase`, `string.lowercase`, `string.numbers`, `string.specialChars`, `string.allowedSpecialChars`) in secret_controller.go
 
 ### Helm Chart
 
@@ -271,9 +272,10 @@ k8s-secret-operator/
 
 - [x] Update unit tests for new annotation schema
 - [x] Update integration tests (envtest-based)
-- [ ] Update e2e tests
+- [x] Update e2e tests
 - [x] Add tests for configuration file loading
 - [x] Add tests for charset configuration
+- [ ] Add e2e tests for per-Secret charset annotations (after feature is implemented)
 
 ### CI/CD
 

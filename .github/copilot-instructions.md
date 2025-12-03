@@ -1,17 +1,17 @@
-# Kubernetes Secret Generator Operator
+# Kubernetes Secret Operator
 
 ## Project Overview
 
 This project implements a custom Kubernetes controller that automatically generates random secret values. It can be used for auto-generating random credentials for applications running on Kubernetes.
 
-**Repository:** https://github.com/guided-traffic/k8s-secret-generator
+**Repository:** https://github.com/guided-traffic/k8s-secret-operator
 
 ## Architecture
 
 ### Core Components
 
 1. **Secret Controller** - Watches Kubernetes Secrets with specific annotations
-2. **Secret Generator** - Generates cryptographically secure random values (using `crypto/rand`)
+2. **Value Generator** - Generates cryptographically secure random values (using `crypto/rand`)
 3. **Reconciliation Logic** - Handles the update of secrets with generated values
 
 ### Annotation Schema
@@ -138,7 +138,7 @@ rules:
 
 The operator reads its configuration from a YAML file at startup. This allows customizing default behavior without code changes.
 
-**Default config file path:** `/etc/secret-generator/config.yaml`
+**Default config file path:** `/etc/secret-operator/config.yaml`
 
 **Example configuration:**
 
@@ -211,7 +211,7 @@ config:
 ## File Structure
 
 ```
-k8s-secret-generator/
+k8s-secret-operator/
 ├── .github/
 │   ├── copilot-instructions.md
 │   └── workflows/
@@ -232,7 +232,7 @@ k8s-secret-generator/
 │   └── samples/
 ├── deploy/
 │   └── helm/
-│       └── k8s-secret-generator/
+│       └── k8s-secret-operator/
 ├── test/
 │   └── e2e/
 ├── Containerfile

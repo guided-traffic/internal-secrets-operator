@@ -2,9 +2,9 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "k8s-secret-generator.fullname" . }}
+  name: {{ include "k8s-secret-operator.fullname" . }}
   labels:
-    {{- include "k8s-secret-generator.labels" . | nindent 4 }}
+    {{- include "k8s-secret-operator.labels" . | nindent 4 }}
 rules:
   - apiGroups: [""]
     resources: ["secrets"]
@@ -19,15 +19,15 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "k8s-secret-generator.fullname" . }}
+  name: {{ include "k8s-secret-operator.fullname" . }}
   labels:
-    {{- include "k8s-secret-generator.labels" . | nindent 4 }}
+    {{- include "k8s-secret-operator.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "k8s-secret-generator.fullname" . }}
+  name: {{ include "k8s-secret-operator.fullname" . }}
 subjects:
   - kind: ServiceAccount
-    name: {{ include "k8s-secret-generator.serviceAccountName" . }}
+    name: {{ include "k8s-secret-operator.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 {{- end }}

@@ -40,12 +40,12 @@ ARG GIT_COMMIT
 ARG BUILD_TIME
 
 # Add OCI labels for better metadata
-LABEL org.opencontainers.image.title="Kubernetes Secret Generator" \
+LABEL org.opencontainers.image.title="Kubernetes Secret Operator" \
       org.opencontainers.image.description="A Kubernetes operator that automatically generates random secret values" \
       org.opencontainers.image.vendor="Guided Traffic" \
       org.opencontainers.image.licenses="Apache-2.0" \
-      org.opencontainers.image.documentation="https://github.com/guided-traffic/k8s-secret-generator" \
-      org.opencontainers.image.source="https://github.com/guided-traffic/k8s-secret-generator" \
+      org.opencontainers.image.documentation="https://github.com/guided-traffic/k8s-secret-operator" \
+      org.opencontainers.image.source="https://github.com/guided-traffic/k8s-secret-operator" \
       org.opencontainers.image.version="${BUILD_NUMBER:-dev}" \
       org.opencontainers.image.revision="${GIT_COMMIT:-unknown}" \
       org.opencontainers.image.created="${BUILD_TIME:-0}"

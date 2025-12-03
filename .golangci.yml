@@ -45,7 +45,7 @@ linters-settings:
       - name: unreachable-code
 
   goimports:
-    local-prefixes: github.com/guided-traffic/k8s-secret-generator
+    local-prefixes: github.com/guided-traffic/k8s-secret-operator
 
   goconst:
     min-len: 3

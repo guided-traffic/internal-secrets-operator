@@ -1,5 +1,5 @@
 # Image URL to use for building/pushing image targets
-IMG ?= ghcr.io/guided-traffic/k8s-secret-generator:latest
+IMG ?= ghcr.io/guided-traffic/k8s-secret-operator:latest
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.29.0
@@ -80,7 +80,7 @@ kind-create: ## Create a Kind cluster for local testing.
 	@cat << EOF > /tmp/kind-config.yaml
 	kind: Cluster
 	apiVersion: kind.x-k8s.io/v1alpha4
-	name: secret-generator-test
+	name: secret-operator-test
 	nodes:
 	- role: control-plane
 	containerdConfigPatches:
@@ -94,18 +94,18 @@ kind-create: ## Create a Kind cluster for local testing.
 .PHONY: kind-delete
 kind-delete: ## Delete the Kind test cluster.
 	@echo "Deleting Kind cluster..."
-	kind delete cluster --name secret-generator-test
+	kind delete cluster --name secret-operator-test
 
 .PHONY: kind-load
 kind-load: docker-build ## Build and load the operator image into Kind.
 	@echo "Loading image into Kind cluster..."
-	docker save ${IMG} | docker exec -i secret-generator-test-control-plane ctr --namespace=k8s.io images import -
+	docker save ${IMG} | docker exec -i secret-operator-test-control-plane ctr --namespace=k8s.io images import -
 
 .PHONY: e2e-local
 e2e-local: kind-create kind-load ## Run full E2E test locally with Kind.
 	@echo "Installing operator via Helm..."
-	helm install k8s-secret-generator deploy/helm/k8s-secret-generator \
-		--namespace k8s-secret-generator-system \
+	helm install k8s-secret-operator deploy/helm/k8s-secret-operator \
+		--namespace k8s-secret-operator-system \
 		--create-namespace \
 		--values test/e2e/helm-values.yaml \
 		--wait \

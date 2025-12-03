@@ -37,7 +37,7 @@ import (
 )
 
 const (
-	// AnnotationPrefix is the prefix for all secret generator annotations
+	// AnnotationPrefix is the prefix for all secret operator annotations
 	AnnotationPrefix = "secgen.gtrfc.com/"
 
 	// AnnotationAutogenerate specifies which fields to auto-generate

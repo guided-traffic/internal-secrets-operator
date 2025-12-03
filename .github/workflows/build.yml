@@ -41,7 +41,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            guidedtraffic/k8s-secret-generator
+            guidedtraffic/k8s-secret-operator
           tags: |
             type=schedule
             type=ref,event=branch
@@ -52,12 +52,12 @@ jobs:
             type=sha
             type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
           labels: |
-            org.opencontainers.image.title=Kubernetes Secret Generator
+            org.opencontainers.image.title=Kubernetes Secret Operator
             org.opencontainers.image.description=A Kubernetes operator that automatically generates random secret values
             org.opencontainers.image.vendor=Guided Traffic
             org.opencontainers.image.licenses=Apache-2.0
-            org.opencontainers.image.documentation=https://github.com/guided-traffic/k8s-secret-generator
-            org.opencontainers.image.source=https://github.com/guided-traffic/k8s-secret-generator
+            org.opencontainers.image.documentation=https://github.com/guided-traffic/k8s-secret-operator
+            org.opencontainers.image.source=https://github.com/guided-traffic/k8s-secret-operator
 
       - name: Get current epoch time
         id: time
@@ -83,13 +83,13 @@ jobs:
           provenance: true
           sbom: true
           # Enable attestation features
-          outputs: type=image,name=target,annotation-index.org.opencontainers.image.description=Kubernetes Secret Generator
+          outputs: type=image,name=target,annotation-index.org.opencontainers.image.description=Kubernetes Secret Operator
 
       - name: Generate and upload SBOM
         if: github.event_name != 'pull_request'
         uses: anchore/sbom-action@v0
         with:
-          image: guidedtraffic/k8s-secret-generator:${{ github.ref_name }}
+          image: guidedtraffic/k8s-secret-operator:${{ github.ref_name }}
           format: spdx-json
           upload-artifact: true
           upload-release-assets: false
@@ -101,7 +101,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ${{ github.workspace }}/hansfischer-k8s-secret-generator_*.spdx.json
+            ${{ github.workspace }}/hansfischer-k8s-secret-operator_*.spdx.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -110,7 +110,7 @@ jobs:
         uses: docker/scout-action@v1
         with:
           command: quickview,cves,recommendations
-          image: guidedtraffic/k8s-secret-generator:${{ github.ref_name }}
+          image: guidedtraffic/k8s-secret-operator:${{ github.ref_name }}
           sarif-file: scout-report.sarif
           summary: true
 
@@ -137,19 +137,19 @@ jobs:
           # Extrahiere Version aus dem Release-Tag (ohne 'v' Prefix)
           VERSION=${GITHUB_REF_NAME#v}
           # Aktualisiere Chart und App Version
-          sed -i "s/^version:.*$/version: ${VERSION}/" deploy/helm/k8s-secret-generator/Chart.yaml
-          sed -i "s/^appVersion:.*$/appVersion: \"${VERSION}\"/" deploy/helm/k8s-secret-generator/Chart.yaml
+          sed -i "s/^version:.*$/version: ${VERSION}/" deploy/helm/k8s-secret-operator/Chart.yaml
+          sed -i "s/^appVersion:.*$/appVersion: \"${VERSION}\"/" deploy/helm/k8s-secret-operator/Chart.yaml
           # Aktualisiere Image Tag in values.yaml
-          sed -i "s/^  tag:.*$/  tag: \"${VERSION}\"/" deploy/helm/k8s-secret-generator/values.yaml
+          sed -i "s/^  tag:.*$/  tag: \"${VERSION}\"/" deploy/helm/k8s-secret-operator/values.yaml
 
       - name: Create Helm Package
         run: |
           cd deploy/helm
-          helm package k8s-secret-generator/
+          helm package k8s-secret-operator/
           mkdir -p repo
           mv *.tgz repo/
           # Erstelle temporären Index für das neue Chart
-          helm repo index repo/ --url https://guided-traffic.github.io/k8s-secret-generator/
+          helm repo index repo/ --url https://guided-traffic.github.io/k8s-secret-operator/
           cd ../..
 
       - name: Configure Git
@@ -180,12 +180,12 @@ jobs:
             mkdir -p temp-repo
             cp *.tgz temp-repo/
             # Merge mit existierendem Index
-            helm repo index temp-repo/ --url https://guided-traffic.github.io/k8s-secret-generator/ --merge index.yaml
+            helm repo index temp-repo/ --url https://guided-traffic.github.io/k8s-secret-operator/ --merge index.yaml
             cp temp-repo/index.yaml .
             rm -rf temp-repo
           else
             # Erstelle neuen Index falls keiner existiert
-            helm repo index . --url https://guided-traffic.github.io/k8s-secret-generator/
+            helm repo index . --url https://guided-traffic.github.io/k8s-secret-operator/
           fi
 
           git add --force *.tgz index.yaml
@@ -227,10 +227,10 @@ jobs:
           # Extrahiere Version aus dem Release-Tag (ohne 'v' Prefix)
           VERSION=${GITHUB_REF_NAME#v}
           # Aktualisiere Chart und App Version
-          sed -i "s/^version:.*$/version: ${VERSION}/" deploy/helm/k8s-secret-generator/Chart.yaml
-          sed -i "s/^appVersion:.*$/appVersion: \"${VERSION}\"/" deploy/helm/k8s-secret-generator/Chart.yaml
+          sed -i "s/^version:.*$/version: ${VERSION}/" deploy/helm/k8s-secret-operator/Chart.yaml
+          sed -i "s/^appVersion:.*$/appVersion: \"${VERSION}\"/" deploy/helm/k8s-secret-operator/Chart.yaml
           # Aktualisiere Image Tag in values.yaml
-          sed -i "s/^  tag:.*$/  tag: \"${VERSION}\"/" deploy/helm/k8s-secret-generator/values.yaml
+          sed -i "s/^  tag:.*$/  tag: \"${VERSION}\"/" deploy/helm/k8s-secret-operator/values.yaml
 
       - name: Package and Push Helm Chart to Docker Hub
         run: |
@@ -238,8 +238,8 @@ jobs:
           cd deploy/helm
 
           # Package the chart
-          helm package k8s-secret-generator/
+          helm package k8s-secret-operator/
 
           # Push to Docker Hub as OCI artifact
           VERSION=${GITHUB_REF_NAME#v}
-          helm push k8s-secret-generator-helm-${VERSION}.tgz oci://registry-1.docker.io/hansfischer
+          helm push k8s-secret-operator-helm-${VERSION}.tgz oci://registry-1.docker.io/hansfischer

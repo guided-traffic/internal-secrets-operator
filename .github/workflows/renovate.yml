@@ -39,5 +39,5 @@ jobs:
         env:
           LOG_LEVEL: ${{ inputs.logLevel || 'info' }}
           RENOVATE_AUTODISCOVER: 'true'
-          RENOVATE_AUTODISCOVER_FILTER: 'guided-traffic/k8s-secret-generator'
+          RENOVATE_AUTODISCOVER_FILTER: 'guided-traffic/k8s-secret-operator'
           RENOVATE_REQUIRE_CONFIG: 'required'

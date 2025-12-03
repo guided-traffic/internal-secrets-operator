@@ -205,7 +205,7 @@ jobs:
           cat << EOF > kind-config.yaml
           kind: Cluster
           apiVersion: kind.x-k8s.io/v1alpha4
-          name: secret-generator-test
+          name: secret-operator-test
           nodes:
           - role: control-plane
           # Use native snapshotter to avoid nested overlay issues in DinD
@@ -223,7 +223,7 @@ jobs:
         with:
           version: v0.30.0
           node_image: kindest/node:v1.33.4
-          cluster_name: secret-generator-test
+          cluster_name: secret-operator-test
           wait: 120s
           ignore_failed_clean: true
           config: kind-config.yaml
@@ -235,9 +235,9 @@ jobs:
 
       - name: Build and load operator image
         run: |
-          make docker-build IMG=k8s-secret-generator:test
+          make docker-build IMG=k8s-secret-operator:test
           # Import image - containerd will automatically use the native snapshotter from config
-          docker save k8s-secret-generator:test | docker exec -i secret-generator-test-control-plane ctr --namespace=k8s.io images import -
+          docker save k8s-secret-operator:test | docker exec -i secret-operator-test-control-plane ctr --namespace=k8s.io images import -
 
       - name: Install Helm
         uses: azure/setup-helm@v4
@@ -246,7 +246,7 @@ jobs:
 
       - name: Install operator via Helm
         run: |
-          helm install k8s-secret-generator deploy/helm/k8s-secret-generator \
+          helm install k8s-secret-operator deploy/helm/k8s-secret-operator \
             --namespace kube-extended \
             --create-namespace \
             --values test/e2e/helm-values.yaml \
@@ -254,7 +254,7 @@ jobs:
             --timeout 120s
 
       - name: Wait for operator
-        run: kubectl -n kube-extended wait --for=condition=available --timeout=120s deployment/k8s-secret-generator
+        run: kubectl -n kube-extended wait --for=condition=available --timeout=120s deployment/k8s-secret-operator
 
       - name: Run E2E tests
         run: make test-e2e
@@ -265,7 +265,7 @@ jobs:
         if: failure()
         run: |
           echo "=== Operator logs ==="
-          kubectl -n kube-extended logs -l app.kubernetes.io/name=k8s-secret-generator --tail=100 || true
+          kubectl -n kube-extended logs -l app.kubernetes.io/name=k8s-secret-operator --tail=100 || true
           echo "=== Describe pods ==="
           kubectl -n kube-extended describe pods || true
           echo "=== Events ==="
@@ -273,7 +273,7 @@ jobs:
 
       - name: Cleanup Kind cluster
         if: always()
-        run: kind delete cluster --name secret-generator-test || true
+        run: kind delete cluster --name secret-operator-test || true
 
   container-malware-scan:
     name: Container Malware Scan
@@ -302,12 +302,12 @@ jobs:
           platforms: linux/amd64
           push: false
           load: true
-          tags: k8s-secret-generator:scan-${{ github.sha }}
+          tags: k8s-secret-operator:scan-${{ github.sha }}
 
       - name: Run Trivy vulnerability scan
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: k8s-secret-generator:scan-${{ github.sha }}
+          image-ref: k8s-secret-operator:scan-${{ github.sha }}
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true
@@ -319,7 +319,7 @@ jobs:
         if: always()
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: k8s-secret-generator:scan-${{ github.sha }}
+          image-ref: k8s-secret-operator:scan-${{ github.sha }}
           format: 'sarif'
           output: 'trivy-results.sarif'
           scanners: 'vuln,secret,misconfig'
@@ -334,7 +334,7 @@ jobs:
 
       - name: Cleanup scan image
         if: always()
-        run: docker rmi k8s-secret-generator:scan-${{ github.sha }} || true
+        run: docker rmi k8s-secret-operator:scan-${{ github.sha }} || true
 
   semantic-release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

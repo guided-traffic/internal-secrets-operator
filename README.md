@@ -1,7 +1,7 @@
-# Kubernetes Secret Generator
+# Kubernetes Secret Operator
 
-[![Build Status](https://github.com/guided-traffic/k8s-secret-generator/actions/workflows/build.yml/badge.svg)](https://github.com/guided-traffic/k8s-secret-generator/actions)
-[![Go Report Card](https://goreportcard.com/badge/github.com/guided-traffic/k8s-secret-generator)](https://goreportcard.com/report/github.com/guided-traffic/k8s-secret-generator)
+[![Build Status](https://github.com/guided-traffic/k8s-secret-operator/actions/workflows/build.yml/badge.svg)](https://github.com/guided-traffic/k8s-secret-operator/actions)
+[![Go Report Card](https://goreportcard.com/badge/github.com/guided-traffic/k8s-secret-operator)](https://goreportcard.com/report/github.com/guided-traffic/k8s-secret-operator)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 A Kubernetes operator that automatically generates random secret values. Use it for auto-generating random credentials for applications running on Kubernetes.
@@ -22,14 +22,14 @@ A Kubernetes operator that automatically generates random secret values. Use it 
 #### Using Helm
 
 ```bash
-helm repo add k8s-secret-generator https://guided-traffic.github.io/k8s-secret-generator
-helm install k8s-secret-generator k8s-secret-generator/k8s-secret-generator
+helm repo add k8s-secret-operator https://guided-traffic.github.io/k8s-secret-operator
+helm install k8s-secret-operator k8s-secret-operator/k8s-secret-operator
 ```
 
 #### Using Kustomize
 
 ```bash
-kubectl apply -k https://github.com/guided-traffic/k8s-secret-generator/config/default
+kubectl apply -k https://github.com/guided-traffic/k8s-secret-operator/config/default
 ```
 
 ### Usage
@@ -189,18 +189,18 @@ The operator follows the standard Kubernetes controller pattern:
 ┌─────────────────────────────────────────────────────────────┐
 │                    Kubernetes Cluster                        │
 │  ┌───────────────┐       ┌──────────────────────────────┐  │
-│  │    Secret     │       │   Secret Generator Operator   │  │
-│  │  (with anno-  │◄─────►│  ┌────────────────────────┐  │  │
-│  │   tations)    │       │  │   Secret Controller    │  │  │
-│  └───────────────┘       │  │   - Watch Secrets      │  │  │
-│                          │  │   - Filter by anno.    │  │  │
-│                          │  │   - Reconcile          │  │  │
-│                          │  └────────────────────────┘  │  │
-│                          │  ┌────────────────────────┐  │  │
-│                          │  │   Secret Generator     │  │  │
-│                          │  │   - crypto/rand        │  │  │
-│                          │  │   - Multiple types     │  │  │
-│                          │  └────────────────────────┘  │  │
+│  │    Secret     │       │    Secret Operator    │  │
+│  │  (with anno-  │◄─────►│  ┌────────────────────────┐  │
+│  │   tations)    │       │  │   Secret Controller    │  │
+│  └───────────────┘       │  │   - Watch Secrets      │  │
+│                          │  │   - Filter by anno.    │  │
+│                          │  │   - Reconcile          │  │
+│                          │  └────────────────────────┘  │
+│                          │  ┌────────────────────────┐  │
+│                          │  │   Value Generator      │  │
+│                          │  │   - crypto/rand        │  │
+│                          │  │   - Multiple types     │  │
+│                          │  └────────────────────────┘  │
 │                          └──────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```

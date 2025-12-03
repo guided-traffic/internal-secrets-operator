@@ -29,8 +29,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/guided-traffic/k8s-secret-generator/internal/controller"
-	"github.com/guided-traffic/k8s-secret-generator/pkg/generator"
+	"github.com/guided-traffic/k8s-secret-operator/internal/controller"
+	"github.com/guided-traffic/k8s-secret-operator/pkg/generator"
 )
 
 var (
@@ -73,14 +73,14 @@ func main() {
 		},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "secret-generator.guided-traffic.com",
+		LeaderElectionID:       "secret-operator.guided-traffic.com",
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
 
-	// Create the secret generator
+	// Create the value generator
 	gen := generator.NewSecretGenerator()
 
 	// Set up the Secret controller

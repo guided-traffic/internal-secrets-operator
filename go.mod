@@ -1,4 +1,4 @@
-module github.com/guided-traffic/k8s-secret-generator
+module github.com/guided-traffic/k8s-secret-operator
 
 go 1.25.5
 

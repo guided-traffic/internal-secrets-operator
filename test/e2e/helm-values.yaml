@@ -4,7 +4,7 @@
 replicaCount: 1
 
 image:
-  repository: k8s-secret-generator
+  repository: k8s-secret-operator
   pullPolicy: Never  # Image is loaded directly into Kind
   tag: "test"
 

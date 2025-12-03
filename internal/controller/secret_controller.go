@@ -30,11 +30,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	"github.com/guided-traffic/k8s-secret-generator/pkg/generator"
+	"github.com/guided-traffic/k8s-secret-operator/pkg/generator"
 )
 
 const (
-	// AnnotationPrefix is the prefix for all secret generator annotations
+	// AnnotationPrefix is the prefix for all secret operator annotations
 	AnnotationPrefix = "secgen.gtrfc.com/"
 
 	// AnnotationAutogenerate specifies which fields to auto-generate

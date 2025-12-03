@@ -42,7 +42,7 @@ kind: Secret
 metadata:
   name: example-secret
   annotations:
-    secret-generator.v1.guided-traffic.com/autogenerate: password
+    secgen.gtrfc.com/autogenerate: password
 data:
   username: c29tZXVzZXI=  # someuser (base64 encoded)
 ```
@@ -55,10 +55,10 @@ kind: Secret
 metadata:
   name: example-secret
   annotations:
-    secret-generator.v1.guided-traffic.com/autogenerate: password
-    secret-generator.v1.guided-traffic.com/type: string
-    secret-generator.v1.guided-traffic.com/secure: "yes"
-    secret-generator.v1.guided-traffic.com/autogenerate-generated-at: "2025-12-03T10:00:00+01:00"
+    secgen.gtrfc.com/autogenerate: password
+    secgen.gtrfc.com/type: string
+    secgen.gtrfc.com/secure: "yes"
+    secgen.gtrfc.com/generated-at: "2025-12-03T10:00:00+01:00"
 type: Opaque
 data:
   username: c29tZXVzZXI=
@@ -69,7 +69,7 @@ data:
 
 ### Annotations
 
-All annotations use the prefix `secret-generator.v1.guided-traffic.com/`:
+All annotations use the prefix `secgen.gtrfc.com/`:
 
 | Annotation | Description | Default |
 |------------|-------------|---------|
@@ -88,7 +88,7 @@ kind: Secret
 metadata:
   name: multi-field-secret
   annotations:
-    secret-generator.v1.guided-traffic.com/autogenerate: password,api-key,token
+    secgen.gtrfc.com/autogenerate: password,api-key,token
 type: Opaque
 ```
 
@@ -100,8 +100,8 @@ kind: Secret
 metadata:
   name: custom-length-secret
   annotations:
-    secret-generator.v1.guided-traffic.com/autogenerate: password
-    secret-generator.v1.guided-traffic.com/length: "64"
+    secgen.gtrfc.com/autogenerate: password
+    secgen.gtrfc.com/length: "64"
 type: Opaque
 ```
 
@@ -113,8 +113,8 @@ kind: Secret
 metadata:
   name: uuid-secret
   annotations:
-    secret-generator.v1.guided-traffic.com/autogenerate: client-id
-    secret-generator.v1.guided-traffic.com/type: uuid
+    secgen.gtrfc.com/autogenerate: client-id
+    secgen.gtrfc.com/type: uuid
 type: Opaque
 ```
 
@@ -126,8 +126,8 @@ kind: Secret
 metadata:
   name: regenerate-secret
   annotations:
-    secret-generator.v1.guided-traffic.com/autogenerate: password
-    secret-generator.v1.guided-traffic.com/regenerate: "true"
+    secgen.gtrfc.com/autogenerate: password
+    secgen.gtrfc.com/regenerate: "true"
 type: Opaque
 data:
   password: b2xkLXBhc3N3b3Jk  # This will be replaced

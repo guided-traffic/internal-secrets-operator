@@ -245,7 +245,7 @@ k8s-secret-generator/
 
 ### Code Changes Required
 
-- [ ] Update annotation prefix from `secret-generator.v1.guided-traffic.com/` to `secgen.gtrfc.com/`
+- [x] Update annotation prefix from `secret-generator.v1.guided-traffic.com/` to `secgen.gtrfc.com/`
 - [ ] Remove `regenerate` annotation support
 - [ ] Remove `uuid` and `hex` generation types
 - [ ] Rename `base64` type to `bytes`

@@ -35,7 +35,7 @@ import (
 
 const (
 	// AnnotationPrefix is the prefix for all secret generator annotations
-	AnnotationPrefix = "secret-generator.v1.guided-traffic.com/"
+	AnnotationPrefix = "secgen.gtrfc.com/"
 
 	// AnnotationAutogenerate specifies which fields to auto-generate
 	AnnotationAutogenerate = AnnotationPrefix + "autogenerate"
@@ -50,7 +50,7 @@ const (
 	AnnotationSecure = AnnotationPrefix + "secure"
 
 	// AnnotationGeneratedAt indicates when the value was generated
-	AnnotationGeneratedAt = AnnotationPrefix + "autogenerate-generated-at"
+	AnnotationGeneratedAt = AnnotationPrefix + "generated-at"
 
 	// AnnotationRegenerate forces regeneration of the secret
 	AnnotationRegenerate = AnnotationPrefix + "regenerate"

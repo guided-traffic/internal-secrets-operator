@@ -247,14 +247,14 @@ jobs:
       - name: Install operator via Helm
         run: |
           helm install k8s-secret-generator deploy/helm/k8s-secret-generator \
-            --namespace k8s-secret-generator-system \
+            --namespace kube-extended \
             --create-namespace \
             --values test/e2e/helm-values.yaml \
             --wait \
             --timeout 120s
 
       - name: Wait for operator
-        run: kubectl -n k8s-secret-generator-system wait --for=condition=available --timeout=120s deployment/k8s-secret-generator
+        run: kubectl -n kube-extended wait --for=condition=available --timeout=120s deployment/k8s-secret-generator
 
       - name: Run E2E tests
         run: make test-e2e
@@ -265,11 +265,11 @@ jobs:
         if: failure()
         run: |
           echo "=== Operator logs ==="
-          kubectl -n k8s-secret-generator-system logs -l app.kubernetes.io/name=k8s-secret-generator --tail=100 || true
+          kubectl -n kube-extended logs -l app.kubernetes.io/name=k8s-secret-generator --tail=100 || true
           echo "=== Describe pods ==="
-          kubectl -n k8s-secret-generator-system describe pods || true
+          kubectl -n kube-extended describe pods || true
           echo "=== Events ==="
-          kubectl -n k8s-secret-generator-system get events --sort-by='.lastTimestamp' || true
+          kubectl -n kube-extended get events --sort-by='.lastTimestamp' || true
 
       - name: Cleanup Kind cluster
         if: always()

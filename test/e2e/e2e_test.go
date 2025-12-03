@@ -59,7 +59,7 @@ const (
 	AnnotationRegenerate = AnnotationPrefix + "regenerate"
 
 	// testNamespace is the namespace used for E2E tests
-	testNamespace = "e2e-test"
+	testNamespace = "default"
 
 	// pollInterval is the interval for polling operations
 	pollInterval = 1 * time.Second
@@ -69,6 +69,17 @@ const (
 )
 
 var clientset *kubernetes.Clientset
+
+// testSecretNames holds all secret names created during tests for cleanup
+var testSecretNames = []string{
+	"test-autogenerate",
+	"test-multi-field",
+	"test-uuid",
+	"test-base64",
+	"test-regenerate",
+	"test-no-annotation",
+	"test-existing-value",
+}
 
 func TestMain(m *testing.M) {
 	// Build kubeconfig
@@ -91,38 +102,34 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 
-	os.Exit(m.Run())
+	// Cleanup any leftover test secrets before running tests
+	cleanupTestSecrets()
+
+	code := m.Run()
+
+	// Cleanup test secrets after all tests
+	cleanupTestSecrets()
+
+	os.Exit(code)
 }
 
-func setupTestNamespace(t *testing.T) {
+func cleanupTestSecrets() {
 	ctx := context.Background()
-
-	// Create namespace if it doesn't exist
-	ns := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: testNamespace,
-		},
-	}
-
-	_, err := clientset.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
-	if err != nil && !errors.IsAlreadyExists(err) {
-		t.Fatalf("Failed to create test namespace: %v", err)
+	for _, name := range testSecretNames {
+		_ = clientset.CoreV1().Secrets(testNamespace).Delete(ctx, name, metav1.DeleteOptions{})
 	}
 }
 
-func cleanupTestNamespace(t *testing.T) {
+func cleanupSecret(t *testing.T, name string) {
 	ctx := context.Background()
-
-	// Delete namespace to cleanup all test resources
-	err := clientset.CoreV1().Namespaces().Delete(ctx, testNamespace, metav1.DeleteOptions{})
+	err := clientset.CoreV1().Secrets(testNamespace).Delete(ctx, name, metav1.DeleteOptions{})
 	if err != nil && !errors.IsNotFound(err) {
-		t.Logf("Warning: Failed to delete test namespace: %v", err)
+		t.Logf("Warning: Failed to delete secret %s: %v", name, err)
 	}
 }
 
 func TestSecretAutoGeneration(t *testing.T) {
-	setupTestNamespace(t)
-	defer cleanupTestNamespace(t)
+	defer cleanupSecret(t, "test-autogenerate")
 
 	ctx := context.Background()
 
@@ -191,8 +198,7 @@ func TestSecretAutoGeneration(t *testing.T) {
 }
 
 func TestSecretMultiFieldGeneration(t *testing.T) {
-	setupTestNamespace(t)
-	defer cleanupTestNamespace(t)
+	defer cleanupSecret(t, "test-multi-field")
 
 	ctx := context.Background()
 
@@ -260,8 +266,7 @@ func TestSecretMultiFieldGeneration(t *testing.T) {
 }
 
 func TestSecretUUIDGeneration(t *testing.T) {
-	setupTestNamespace(t)
-	defer cleanupTestNamespace(t)
+	defer cleanupSecret(t, "test-uuid")
 
 	ctx := context.Background()
 
@@ -319,8 +324,7 @@ func TestSecretUUIDGeneration(t *testing.T) {
 }
 
 func TestSecretBase64Generation(t *testing.T) {
-	setupTestNamespace(t)
-	defer cleanupTestNamespace(t)
+	defer cleanupSecret(t, "test-base64")
 
 	ctx := context.Background()
 
@@ -376,8 +380,7 @@ func TestSecretBase64Generation(t *testing.T) {
 }
 
 func TestSecretRegeneration(t *testing.T) {
-	setupTestNamespace(t)
-	defer cleanupTestNamespace(t)
+	defer cleanupSecret(t, "test-regenerate")
 
 	ctx := context.Background()
 
@@ -467,8 +470,7 @@ func TestSecretRegeneration(t *testing.T) {
 }
 
 func TestSecretWithoutAnnotationNotProcessed(t *testing.T) {
-	setupTestNamespace(t)
-	defer cleanupTestNamespace(t)
+	defer cleanupSecret(t, "test-no-annotation")
 
 	ctx := context.Background()
 
@@ -513,8 +515,7 @@ func TestSecretWithoutAnnotationNotProcessed(t *testing.T) {
 }
 
 func TestSecretExistingValuePreserved(t *testing.T) {
-	setupTestNamespace(t)
-	defer cleanupTestNamespace(t)
+	defer cleanupSecret(t, "test-existing-value")
 
 	ctx := context.Background()
 

@@ -250,7 +250,7 @@ k8s-secret-operator/
 - [x] Update annotation prefix from `secret-generator.v1.guided-traffic.com/` to `secgen.gtrfc.com/`
 - [x] Remove `regenerate` annotation support
 - [x] Remove `uuid` and `hex` generation types
-- [ ] Rename `base64` type to `bytes`
+- [x] Rename `base64` type to `bytes`
 - [ ] Implement field-specific type/length configuration (`type.<field>`, `length.<field>`)
 - [ ] Remove `secure` annotation (operator is always secure by design)
 - [ ] Simplify operator-set annotations to only `generated-at`

@@ -11,7 +11,7 @@ A Kubernetes operator that automatically generates random secret values. Use it 
 - 🔐 **Automatic Secret Generation** - Automatically generates cryptographically secure random values for Kubernetes Secrets
 - 🎯 **Annotation-Based** - Simple annotation-based configuration, no CRDs required
 -  **Configurable Length** - Customize the length of generated secrets
-- 🔢 **Multiple Types** - Support for string, base64, UUID, and hex generation
+- 🔢 **Multiple Types** - Support for string and bytes generation
 - ✅ **Idempotent** - Only generates values for empty fields, preserves existing data
 
 ## Quick Start
@@ -73,7 +73,7 @@ All annotations use the prefix `secgen.gtrfc.com/`:
 | Annotation | Description | Default |
 |------------|-------------|---------|
 | `autogenerate` | Comma-separated list of field names to auto-generate | *required* |
-| `type` | Type of generated value: `string`, `base64`, `uuid`, `hex` | `string` |
+| `type` | Type of generated value: `string`, `bytes` | `string` |
 | `length` | Length of generated string | `32` |
 
 ### Regenerating Secrets
@@ -132,16 +132,17 @@ metadata:
 type: Opaque
 ```
 
-#### Generate UUID
+#### Generate raw bytes (e.g., for encryption keys)
 
 ```yaml
 apiVersion: v1
 kind: Secret
 metadata:
-  name: uuid-secret
+  name: bytes-secret
   annotations:
-    secgen.gtrfc.com/autogenerate: client-id
-    secgen.gtrfc.com/type: uuid
+    secgen.gtrfc.com/autogenerate: encryption-key
+    secgen.gtrfc.com/type: bytes
+    secgen.gtrfc.com/length: "32"
 type: Opaque
 ```
 

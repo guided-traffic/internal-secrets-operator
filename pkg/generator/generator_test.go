@@ -17,7 +17,6 @@ limitations under the License.
 package generator
 
 import (
-	"encoding/base64"
 	"strings"
 	"testing"
 )
@@ -107,7 +106,7 @@ func TestGenerateStringUniqueness(t *testing.T) {
 	}
 }
 
-func TestGenerateBase64(t *testing.T) {
+func TestGenerateBytes(t *testing.T) {
 	tests := []struct {
 		name      string
 		length    int
@@ -123,7 +122,7 @@ func TestGenerateBase64(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := gen.GenerateBase64(tt.length)
+			result, err := gen.GenerateBytes(tt.length)
 
 			if tt.wantError {
 				if err == nil {
@@ -137,15 +136,9 @@ func TestGenerateBase64(t *testing.T) {
 				return
 			}
 
-			// Verify it's valid base64
-			decoded, err := base64.StdEncoding.DecodeString(result)
-			if err != nil {
-				t.Errorf("result is not valid base64: %v", err)
-				return
-			}
-
-			if len(decoded) != tt.length {
-				t.Errorf("expected decoded length %d, got %d", tt.length, len(decoded))
+			// Verify the byte slice has the expected length
+			if len(result) != tt.length {
+				t.Errorf("expected length %d, got %d", tt.length, len(result))
 			}
 		})
 	}
@@ -162,7 +155,7 @@ func TestGenerate(t *testing.T) {
 	}{
 		{"string type", "string", 32, false},
 		{"empty type defaults to string", "", 32, false},
-		{"base64 type", "base64", 32, false},
+		{"bytes type", "bytes", 32, false},
 		{"unknown type", "unknown", 32, true},
 	}
 
@@ -196,9 +189,9 @@ func BenchmarkGenerateString(b *testing.B) {
 	}
 }
 
-func BenchmarkGenerateBase64(b *testing.B) {
+func BenchmarkGenerateBytes(b *testing.B) {
 	gen := NewSecretGenerator()
 	for i := 0; i < b.N; i++ {
-		_, _ = gen.GenerateBase64(32)
+		_, _ = gen.GenerateBytes(32)
 	}
 }

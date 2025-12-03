@@ -40,7 +40,7 @@ const (
 	// AnnotationAutogenerate specifies which fields to auto-generate
 	AnnotationAutogenerate = AnnotationPrefix + "autogenerate"
 
-	// AnnotationType specifies the type of generated value (string, base64, uuid, hex)
+	// AnnotationType specifies the type of generated value (string, bytes)
 	AnnotationType = AnnotationPrefix + "type"
 
 	// AnnotationLength specifies the length of the generated value

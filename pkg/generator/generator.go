@@ -18,7 +18,6 @@ package generator
 
 import (
 	"crypto/rand"
-	"encoding/base64"
 	"fmt"
 )
 
@@ -26,8 +25,8 @@ import (
 type Generator interface {
 	// GenerateString generates a random string of the specified length
 	GenerateString(length int) (string, error)
-	// GenerateBase64 generates a random base64 encoded string
-	GenerateBase64(length int) (string, error)
+	// GenerateBytes generates random bytes of the specified length
+	GenerateBytes(length int) ([]byte, error)
 	// Generate generates a value based on the specified type
 	Generate(genType string, length int) (string, error)
 }
@@ -81,19 +80,18 @@ func (g *SecretGenerator) GenerateString(length int) (string, error) {
 	return string(result), nil
 }
 
-// GenerateBase64 generates a random base64 encoded string
-// The length parameter specifies the number of random bytes before encoding
-func (g *SecretGenerator) GenerateBase64(length int) (string, error) {
+// GenerateBytes generates random bytes of the specified length
+func (g *SecretGenerator) GenerateBytes(length int) ([]byte, error) {
 	if length <= 0 {
-		return "", fmt.Errorf("length must be positive, got %d", length)
+		return nil, fmt.Errorf("length must be positive, got %d", length)
 	}
 
 	randomBytes := make([]byte, length)
 	if _, err := rand.Read(randomBytes); err != nil {
-		return "", fmt.Errorf("failed to generate random bytes: %w", err)
+		return nil, fmt.Errorf("failed to generate random bytes: %w", err)
 	}
 
-	return base64.StdEncoding.EncodeToString(randomBytes), nil
+	return randomBytes, nil
 }
 
 // Generate generates a value based on the specified type
@@ -101,8 +99,12 @@ func (g *SecretGenerator) Generate(genType string, length int) (string, error) {
 	switch genType {
 	case "string", "":
 		return g.GenerateString(length)
-	case "base64":
-		return g.GenerateBase64(length)
+	case "bytes":
+		bytes, err := g.GenerateBytes(length)
+		if err != nil {
+			return "", err
+		}
+		return string(bytes), nil
 	default:
 		return "", fmt.Errorf("unknown generation type: %s", genType)
 	}

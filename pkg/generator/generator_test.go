@@ -26,8 +26,8 @@ func TestNewSecretGenerator(t *testing.T) {
 	if gen == nil {
 		t.Fatal("NewSecretGenerator returned nil")
 	}
-	if gen.charset != AlphanumericCharset {
-		t.Errorf("expected charset %q, got %q", AlphanumericCharset, gen.charset)
+	if gen.defaultCharset != AlphanumericCharset {
+		t.Errorf("expected charset %q, got %q", AlphanumericCharset, gen.defaultCharset)
 	}
 }
 
@@ -37,8 +37,8 @@ func TestNewSecretGeneratorWithCharset(t *testing.T) {
 	if gen == nil {
 		t.Fatal("NewSecretGeneratorWithCharset returned nil")
 	}
-	if gen.charset != customCharset {
-		t.Errorf("expected charset %q, got %q", customCharset, gen.charset)
+	if gen.defaultCharset != customCharset {
+		t.Errorf("expected charset %q, got %q", customCharset, gen.defaultCharset)
 	}
 }
 
@@ -81,7 +81,7 @@ func TestGenerateString(t *testing.T) {
 
 			// Verify all characters are from the charset
 			for _, c := range result {
-				if !strings.ContainsRune(gen.charset, c) {
+				if !strings.ContainsRune(gen.defaultCharset, c) {
 					t.Errorf("result contains character %q not in charset", c)
 				}
 			}

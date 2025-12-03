@@ -252,12 +252,12 @@ k8s-secret-operator/
 - [x] Remove `uuid` and `hex` generation types
 - [x] Rename `base64` type to `bytes`
 - [x] Remove `secure` annotation (operator is always secure by design)
-- [ ] Implement field-specific type/length configuration (`type.<field>`, `length.<field>`)
-- [ ] Simplify operator-set annotations to only `generated-at`
-- [ ] Implement configuration file loading at startup
-- [ ] Add configurable charset for `string` type (uppercase, lowercase, numbers, specialChars, allowedSpecialChars)
-- [ ] Add validation: at least one charset option must be enabled
-- [ ] Implement Warning Events on Secrets when errors occur
+- [x] Implement field-specific type/length configuration (`type.<field>`, `length.<field>`)
+- [x] Simplify operator-set annotations to only `generated-at`
+- [x] Implement configuration file loading at startup
+- [x] Add configurable charset for `string` type (uppercase, lowercase, numbers, specialChars, allowedSpecialChars)
+- [x] Add validation: at least one charset option must be enabled
+- [x] Implement Warning Events on Secrets when errors occur
 
 ### Helm Chart
 
@@ -269,10 +269,10 @@ k8s-secret-operator/
 
 ### Testing
 
-- [ ] Update unit tests for new annotation schema
+- [x] Update unit tests for new annotation schema
 - [ ] Update integration tests
 - [ ] Update e2e tests
-- [ ] Add tests for configuration file loading
+- [x] Add tests for configuration file loading
 - [ ] Add tests for charset configuration
 
 ### Documentation

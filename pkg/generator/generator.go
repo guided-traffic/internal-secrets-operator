@@ -25,16 +25,20 @@ import (
 type Generator interface {
 	// GenerateString generates a random string of the specified length
 	GenerateString(length int) (string, error)
+	// GenerateStringWithCharset generates a random string with a custom charset
+	GenerateStringWithCharset(length int, charset string) (string, error)
 	// GenerateBytes generates random bytes of the specified length
 	GenerateBytes(length int) ([]byte, error)
 	// Generate generates a value based on the specified type
 	Generate(genType string, length int) (string, error)
+	// GenerateWithCharset generates a value based on the specified type with a custom charset
+	GenerateWithCharset(genType string, length int, charset string) (string, error)
 }
 
 // SecretGenerator implements the Generator interface using crypto/rand
 type SecretGenerator struct {
-	// charset is the character set used for string generation
-	charset string
+	// defaultCharset is the default character set used for string generation
+	defaultCharset string
 }
 
 // DefaultCharset is the default character set for generating random strings
@@ -46,25 +50,33 @@ const AlphanumericCharset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXY
 // NewSecretGenerator creates a new SecretGenerator with default settings
 func NewSecretGenerator() *SecretGenerator {
 	return &SecretGenerator{
-		charset: AlphanumericCharset,
+		defaultCharset: AlphanumericCharset,
 	}
 }
 
-// NewSecretGeneratorWithCharset creates a new SecretGenerator with a custom charset
+// NewSecretGeneratorWithCharset creates a new SecretGenerator with a custom default charset
 func NewSecretGeneratorWithCharset(charset string) *SecretGenerator {
 	return &SecretGenerator{
-		charset: charset,
+		defaultCharset: charset,
 	}
 }
 
-// GenerateString generates a random string of the specified length
+// GenerateString generates a random string of the specified length using the default charset
 func (g *SecretGenerator) GenerateString(length int) (string, error) {
+	return g.GenerateStringWithCharset(length, g.defaultCharset)
+}
+
+// GenerateStringWithCharset generates a random string of the specified length using a custom charset
+func (g *SecretGenerator) GenerateStringWithCharset(length int, charset string) (string, error) {
 	if length <= 0 {
 		return "", fmt.Errorf("length must be positive, got %d", length)
 	}
+	if charset == "" {
+		return "", fmt.Errorf("charset must not be empty")
+	}
 
 	result := make([]byte, length)
-	charsetLen := len(g.charset)
+	charsetLen := len(charset)
 
 	// Generate random bytes
 	randomBytes := make([]byte, length)
@@ -74,7 +86,7 @@ func (g *SecretGenerator) GenerateString(length int) (string, error) {
 
 	// Map random bytes to charset characters
 	for i := 0; i < length; i++ {
-		result[i] = g.charset[int(randomBytes[i])%charsetLen]
+		result[i] = charset[int(randomBytes[i])%charsetLen]
 	}
 
 	return string(result), nil
@@ -94,11 +106,16 @@ func (g *SecretGenerator) GenerateBytes(length int) ([]byte, error) {
 	return randomBytes, nil
 }
 
-// Generate generates a value based on the specified type
+// Generate generates a value based on the specified type using the default charset
 func (g *SecretGenerator) Generate(genType string, length int) (string, error) {
+	return g.GenerateWithCharset(genType, length, g.defaultCharset)
+}
+
+// GenerateWithCharset generates a value based on the specified type with a custom charset
+func (g *SecretGenerator) GenerateWithCharset(genType string, length int, charset string) (string, error) {
 	switch genType {
 	case "string", "":
-		return g.GenerateString(length)
+		return g.GenerateStringWithCharset(length, charset)
 	case "bytes":
 		bytes, err := g.GenerateBytes(length)
 		if err != nil {

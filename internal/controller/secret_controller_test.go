@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -26,9 +27,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/guided-traffic/k8s-secret-operator/pkg/config"
 	"github.com/guided-traffic/k8s-secret-operator/pkg/generator"
 )
 
@@ -90,8 +93,7 @@ func TestParseFields(t *testing.T) {
 
 func TestGetAnnotationOrDefault(t *testing.T) {
 	r := &SecretReconciler{
-		DefaultLength: 32,
-		DefaultType:   "string",
+		Config: config.NewDefaultConfig(),
 	}
 
 	tests := []struct {
@@ -143,8 +145,7 @@ func TestGetAnnotationOrDefault(t *testing.T) {
 
 func TestGetLengthAnnotation(t *testing.T) {
 	r := &SecretReconciler{
-		DefaultLength: 32,
-		DefaultType:   "string",
+		Config: config.NewDefaultConfig(),
 	}
 
 	tests := []struct {
@@ -182,6 +183,163 @@ func TestGetLengthAnnotation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := r.getLengthAnnotation(tt.annotations)
+			if result != tt.expected {
+				t.Errorf("expected %d, got %d", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestGetFieldType(t *testing.T) {
+	r := &SecretReconciler{
+		Config: config.NewDefaultConfig(),
+	}
+
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		field       string
+		expected    string
+	}{
+		{
+			name:        "field-specific type",
+			annotations: map[string]string{AnnotationTypePrefix + "encryption-key": "bytes"},
+			field:       "encryption-key",
+			expected:    "bytes",
+		},
+		{
+			name: "field-specific overrides default",
+			annotations: map[string]string{
+				AnnotationType:                         "string",
+				AnnotationTypePrefix + "encryption-key": "bytes",
+			},
+			field:    "encryption-key",
+			expected: "bytes",
+		},
+		{
+			name:        "fallback to default type annotation",
+			annotations: map[string]string{AnnotationType: "bytes"},
+			field:       "password",
+			expected:    "bytes",
+		},
+		{
+			name:        "fallback to reconciler default",
+			annotations: map[string]string{},
+			field:       "password",
+			expected:    "string",
+		},
+		{
+			name: "different field uses default",
+			annotations: map[string]string{
+				AnnotationTypePrefix + "encryption-key": "bytes",
+				AnnotationType:                         "string",
+			},
+			field:    "password",
+			expected: "string",
+		},
+		{
+			name:        "nil annotations",
+			annotations: nil,
+			field:       "password",
+			expected:    "string",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := r.getFieldType(tt.annotations, tt.field)
+			if result != tt.expected {
+				t.Errorf("expected %q, got %q", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestGetFieldLength(t *testing.T) {
+	r := &SecretReconciler{
+		Config: config.NewDefaultConfig(),
+	}
+
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		field       string
+		expected    int
+	}{
+		{
+			name:        "field-specific length",
+			annotations: map[string]string{AnnotationLengthPrefix + "encryption-key": "64"},
+			field:       "encryption-key",
+			expected:    64,
+		},
+		{
+			name: "field-specific overrides default",
+			annotations: map[string]string{
+				AnnotationLength:                         "24",
+				AnnotationLengthPrefix + "encryption-key": "64",
+			},
+			field:    "encryption-key",
+			expected: 64,
+		},
+		{
+			name:        "fallback to default length annotation",
+			annotations: map[string]string{AnnotationLength: "48"},
+			field:       "password",
+			expected:    48,
+		},
+		{
+			name:        "fallback to reconciler default",
+			annotations: map[string]string{},
+			field:       "password",
+			expected:    32,
+		},
+		{
+			name: "different field uses default",
+			annotations: map[string]string{
+				AnnotationLengthPrefix + "encryption-key": "64",
+				AnnotationLength:                         "24",
+			},
+			field:    "password",
+			expected: 24,
+		},
+		{
+			name:        "invalid field-specific length falls back",
+			annotations: map[string]string{AnnotationLengthPrefix + "password": "invalid"},
+			field:       "password",
+			expected:    32,
+		},
+		{
+			name: "invalid field-specific uses default annotation",
+			annotations: map[string]string{
+				AnnotationLengthPrefix + "password": "invalid",
+				AnnotationLength:                   "48",
+			},
+			field:    "password",
+			expected: 48,
+		},
+		{
+			name:        "zero field-specific length falls back",
+			annotations: map[string]string{AnnotationLengthPrefix + "password": "0"},
+			field:       "password",
+			expected:    32,
+		},
+		{
+			name:        "negative field-specific length falls back",
+			annotations: map[string]string{AnnotationLengthPrefix + "password": "-1"},
+			field:       "password",
+			expected:    32,
+		},
+		{
+			name:        "nil annotations",
+			annotations: nil,
+			field:       "password",
+			expected:    32,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := r.getFieldLength(tt.annotations, tt.field)
 			if result != tt.expected {
 				t.Errorf("expected %d, got %d", tt.expected, result)
 			}
@@ -248,6 +406,24 @@ func TestReconcile(t *testing.T) {
 			expectGenerate: false, // Should not overwrite existing values
 			expectFields:   nil,
 		},
+		{
+			name: "secret with field-specific type and length",
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-secret",
+					Namespace: "default",
+					Annotations: map[string]string{
+						AnnotationAutogenerate:                   "password,encryption-key",
+						AnnotationType:                           "string",
+						AnnotationLength:                         "24",
+						AnnotationTypePrefix + "encryption-key":  "bytes",
+						AnnotationLengthPrefix + "encryption-key": "32",
+					},
+				},
+			},
+			expectGenerate: true,
+			expectFields:   []string{"password", "encryption-key"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -258,13 +434,14 @@ func TestReconcile(t *testing.T) {
 				Build()
 
 			gen := generator.NewSecretGenerator()
+			fakeRecorder := record.NewFakeRecorder(10)
 
 			reconciler := &SecretReconciler{
 				Client:        fakeClient,
 				Scheme:        scheme,
 				Generator:     gen,
-				DefaultLength: 32,
-				DefaultType:   "string",
+				Config:        config.NewDefaultConfig(),
+				EventRecorder: fakeRecorder,
 			}
 
 			req := ctrl.Request{
@@ -313,13 +490,14 @@ func TestReconcileSecretNotFound(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
+	fakeRecorder := record.NewFakeRecorder(10)
 
 	reconciler := &SecretReconciler{
 		Client:        fakeClient,
 		Scheme:        scheme,
 		Generator:     gen,
-		DefaultLength: 32,
-		DefaultType:   "string",
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: fakeRecorder,
 	}
 
 	req := ctrl.Request{
@@ -337,5 +515,172 @@ func TestReconcileSecretNotFound(t *testing.T) {
 	// Should return empty result without error for not found
 	if result.RequeueAfter != time.Duration(0) {
 		t.Error("expected empty result for not found secret")
+	}
+}
+
+func TestReconcileEmitsSuccessEvent(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-secret",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationAutogenerate: "password",
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret).
+		Build()
+
+	gen := generator.NewSecretGenerator()
+	fakeRecorder := record.NewFakeRecorder(10)
+
+	reconciler := &SecretReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Generator:     gen,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: fakeRecorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      secret.Name,
+			Namespace: secret.Namespace,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Check that a success event was emitted
+	select {
+	case event := <-fakeRecorder.Events:
+		expectedPrefix := fmt.Sprintf("%s %s", corev1.EventTypeNormal, EventReasonGenerationSucceeded)
+		if len(event) < len(expectedPrefix) || event[:len(expectedPrefix)] != expectedPrefix {
+			t.Errorf("expected event to start with %q, got %q", expectedPrefix, event)
+		}
+	default:
+		t.Error("expected a success event to be emitted")
+	}
+}
+
+func TestReconcileEmitsWarningEventOnError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-secret",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationAutogenerate: "password",
+				AnnotationType:         "invalid-type", // Invalid type should cause error
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret).
+		Build()
+
+	gen := generator.NewSecretGenerator()
+	fakeRecorder := record.NewFakeRecorder(10)
+
+	reconciler := &SecretReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Generator:     gen,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: fakeRecorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      secret.Name,
+			Namespace: secret.Namespace,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected an error for invalid type")
+	}
+
+	// Check that a warning event was emitted
+	select {
+	case event := <-fakeRecorder.Events:
+		expectedPrefix := fmt.Sprintf("%s %s", corev1.EventTypeWarning, EventReasonGenerationFailed)
+		if len(event) < len(expectedPrefix) || event[:len(expectedPrefix)] != expectedPrefix {
+			t.Errorf("expected event to start with %q, got %q", expectedPrefix, event)
+		}
+	default:
+		t.Error("expected a warning event to be emitted")
+	}
+}
+
+func TestReconcileNoEventWhenNoChanges(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	// Secret with existing value - no generation needed
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-secret",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationAutogenerate: "password",
+			},
+		},
+		Data: map[string][]byte{
+			"password": []byte("existing-value"),
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret).
+		Build()
+
+	gen := generator.NewSecretGenerator()
+	fakeRecorder := record.NewFakeRecorder(10)
+
+	reconciler := &SecretReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Generator:     gen,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: fakeRecorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      secret.Name,
+			Namespace: secret.Namespace,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Check that no event was emitted (field already has value)
+	select {
+	case event := <-fakeRecorder.Events:
+		t.Errorf("expected no event to be emitted, got %q", event)
+	default:
+		// No event - expected behavior
 	}
 }

@@ -30,6 +30,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/guided-traffic/k8s-secret-operator/internal/controller"
+	"github.com/guided-traffic/k8s-secret-operator/pkg/config"
 	"github.com/guided-traffic/k8s-secret-operator/pkg/generator"
 )
 
@@ -47,16 +48,14 @@ func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
-	var defaultLength int
-	var defaultType string
+	var configPath string
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
-	flag.IntVar(&defaultLength, "default-length", 32, "Default length for generated secrets.")
-	flag.StringVar(&defaultType, "default-type", "string", "Default type for generated secrets (string, base64, uuid, hex).")
+	flag.StringVar(&configPath, "config", config.DefaultConfigPath, "Path to the configuration file.")
 
 	opts := zap.Options{
 		Development: true,
@@ -65,6 +64,14 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	// Load configuration
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		setupLog.Error(err, "unable to load configuration")
+		os.Exit(1)
+	}
+	setupLog.Info("Configuration loaded", "path", configPath, "defaults", cfg.Defaults)
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
@@ -80,16 +87,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create the value generator
-	gen := generator.NewSecretGenerator()
+	// Create the value generator with the configured charset
+	charset := cfg.Defaults.String.BuildCharset()
+	gen := generator.NewSecretGeneratorWithCharset(charset)
 
 	// Set up the Secret controller
 	if err = (&controller.SecretReconciler{
 		Client:        mgr.GetClient(),
 		Scheme:        mgr.GetScheme(),
 		Generator:     gen,
-		DefaultLength: defaultLength,
-		DefaultType:   defaultType,
+		Config:        cfg,
+		EventRecorder: mgr.GetEventRecorderFor("secret-operator"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Secret")
 		os.Exit(1)

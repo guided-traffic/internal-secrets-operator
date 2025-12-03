@@ -25,11 +25,13 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
+	"github.com/guided-traffic/k8s-secret-operator/pkg/config"
 	"github.com/guided-traffic/k8s-secret-operator/pkg/generator"
 )
 
@@ -40,14 +42,24 @@ const (
 	// AnnotationAutogenerate specifies which fields to auto-generate
 	AnnotationAutogenerate = AnnotationPrefix + "autogenerate"
 
-	// AnnotationType specifies the type of generated value (string, bytes)
+	// AnnotationType specifies the default type of generated value (string, bytes)
 	AnnotationType = AnnotationPrefix + "type"
 
-	// AnnotationLength specifies the length of the generated value
+	// AnnotationLength specifies the default length of the generated value
 	AnnotationLength = AnnotationPrefix + "length"
+
+	// AnnotationTypePrefix is the prefix for field-specific type annotations (type.<field>)
+	AnnotationTypePrefix = AnnotationPrefix + "type."
+
+	// AnnotationLengthPrefix is the prefix for field-specific length annotations (length.<field>)
+	AnnotationLengthPrefix = AnnotationPrefix + "length."
 
 	// AnnotationGeneratedAt indicates when the value was generated
 	AnnotationGeneratedAt = AnnotationPrefix + "generated-at"
+
+	// Event reasons
+	EventReasonGenerationFailed    = "GenerationFailed"
+	EventReasonGenerationSucceeded = "GenerationSucceeded"
 )
 
 // SecretReconciler reconciles a Secret object
@@ -55,8 +67,8 @@ type SecretReconciler struct {
 	client.Client
 	Scheme        *runtime.Scheme
 	Generator     generator.Generator
-	DefaultLength int
-	DefaultType   string
+	Config        *config.Config
+	EventRecorder record.EventRecorder
 }
 
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;update;patch
@@ -88,10 +100,6 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, nil
 	}
 
-	// Get generation parameters
-	genType := r.getAnnotationOrDefault(secret.Annotations, AnnotationType, r.DefaultType)
-	length := r.getLengthAnnotation(secret.Annotations)
-
 	// Initialize data map if nil
 	if secret.Data == nil {
 		secret.Data = make(map[string][]byte)
@@ -108,10 +116,16 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			continue
 		}
 
+		// Get field-specific generation parameters
+		genType := r.getFieldType(secret.Annotations, field)
+		length := r.getFieldLength(secret.Annotations, field)
+
 		// Generate the value
 		value, err := r.Generator.Generate(genType, length)
 		if err != nil {
+			errMsg := fmt.Sprintf("Failed to generate value for field %q: %v", field, err)
 			logger.Error(err, "Failed to generate value", "field", field, "type", genType)
+			r.EventRecorder.Event(&secret, corev1.EventTypeWarning, EventReasonGenerationFailed, errMsg)
 			return ctrl.Result{}, fmt.Errorf("failed to generate value for field %s: %w", field, err)
 		}
 
@@ -128,7 +142,6 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		if secret.Annotations == nil {
 			secret.Annotations = make(map[string]string)
 		}
-		secret.Annotations[AnnotationType] = genType
 		secret.Annotations[AnnotationGeneratedAt] = time.Now().Format(time.RFC3339)
 
 		// Update the secret
@@ -136,6 +149,10 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			logger.Error(err, "Failed to update Secret")
 			return ctrl.Result{}, err
 		}
+
+		// Emit success event
+		r.EventRecorder.Event(&secret, corev1.EventTypeNormal, EventReasonGenerationSucceeded,
+			fmt.Sprintf("Successfully generated values for secret fields"))
 
 		logger.Info("Successfully updated Secret with generated values")
 	}
@@ -163,14 +180,40 @@ func (r *SecretReconciler) getAnnotationOrDefault(annotations map[string]string,
 	return defaultValue
 }
 
-// getLengthAnnotation returns the length annotation value or the default
+// getLengthAnnotation returns the length annotation value or the default from config
 func (r *SecretReconciler) getLengthAnnotation(annotations map[string]string) int {
 	if value, ok := annotations[AnnotationLength]; ok && value != "" {
 		if length, err := strconv.Atoi(value); err == nil && length > 0 {
 			return length
 		}
 	}
-	return r.DefaultLength
+	return r.Config.Defaults.Length
+}
+
+// getFieldType returns the type for a specific field.
+// Priority: type.<field> annotation > type annotation > default type from config
+func (r *SecretReconciler) getFieldType(annotations map[string]string, field string) string {
+	// Check for field-specific type annotation
+	fieldTypeKey := AnnotationTypePrefix + field
+	if value, ok := annotations[fieldTypeKey]; ok && value != "" {
+		return value
+	}
+	// Fall back to default type annotation
+	return r.getAnnotationOrDefault(annotations, AnnotationType, r.Config.Defaults.Type)
+}
+
+// getFieldLength returns the length for a specific field.
+// Priority: length.<field> annotation > length annotation > default length
+func (r *SecretReconciler) getFieldLength(annotations map[string]string, field string) int {
+	// Check for field-specific length annotation
+	fieldLengthKey := AnnotationLengthPrefix + field
+	if value, ok := annotations[fieldLengthKey]; ok && value != "" {
+		if length, err := strconv.Atoi(value); err == nil && length > 0 {
+			return length
+		}
+	}
+	// Fall back to default length annotation
+	return r.getLengthAnnotation(annotations)
 }
 
 // SetupWithManager sets up the controller with the Manager

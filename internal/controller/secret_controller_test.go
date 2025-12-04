@@ -31,8 +31,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/guided-traffic/k8s-secret-operator/pkg/config"
-	"github.com/guided-traffic/k8s-secret-operator/pkg/generator"
+	"github.com/guided-traffic/internal-secrets-operator/pkg/config"
+	"github.com/guided-traffic/internal-secrets-operator/pkg/generator"
 )
 
 func TestParseFields(t *testing.T) {

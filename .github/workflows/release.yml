@@ -254,10 +254,10 @@ jobs:
 
       - name: Build and load operator image
         run: |
-          make docker-build IMG=k8s-secret-operator:test
+          make docker-build IMG=internal-secrets-operator:test
           # Import image - containerd will automatically use the native snapshotter from config
           # Don't specify --snapshotter flag to avoid platform unpacking issues
-          docker save k8s-secret-operator:test | docker exec -i secret-operator-test-control-plane ctr --namespace=k8s.io images import -
+          docker save internal-secrets-operator:test | docker exec -i secret-operator-test-control-plane ctr --namespace=k8s.io images import -
 
       - name: Install Helm
         uses: azure/setup-helm@v4
@@ -266,17 +266,17 @@ jobs:
 
       - name: Install operator via Helm
         run: |
-          helm install k8s-secret-operator deploy/helm/k8s-secret-operator \
-            --namespace k8s-secret-operator-system \
+          helm install internal-secrets-operator deploy/helm/internal-secrets-operator \
+            --namespace internal-secrets-operator-system \
             --create-namespace \
             --values test/e2e/helm-values.yaml \
-            --set image.repository=k8s-secret-operator \
+            --set image.repository=internal-secrets-operator \
             --set image.tag=test \
             --wait \
             --timeout 120s
 
       - name: Wait for operator
-        run: kubectl -n k8s-secret-operator-system wait --for=condition=available --timeout=120s deployment/k8s-secret-operator
+        run: kubectl -n internal-secrets-operator-system wait --for=condition=available --timeout=120s deployment/internal-secrets-operator
 
       - name: Run E2E tests
         run: make test-e2e
@@ -287,11 +287,11 @@ jobs:
         if: failure()
         run: |
           echo "=== Operator logs ==="
-          kubectl -n k8s-secret-operator-system logs -l app.kubernetes.io/name=k8s-secret-operator --tail=100 || true
+          kubectl -n internal-secrets-operator-system logs -l app.kubernetes.io/name=internal-secrets-operator --tail=100 || true
           echo "=== Describe pods ==="
-          kubectl -n k8s-secret-operator-system describe pods || true
+          kubectl -n internal-secrets-operator-system describe pods || true
           echo "=== Events ==="
-          kubectl -n k8s-secret-operator-system get events --sort-by='.lastTimestamp' || true
+          kubectl -n internal-secrets-operator-system get events --sort-by='.lastTimestamp' || true
 
       - name: Cleanup Kind cluster
         if: always()
@@ -393,7 +393,7 @@ jobs:
               if (line.includes('total:')) return;
               const parts = line.trim().split(/\s+/);
               if (parts.length >= 3) {
-                const pkg = parts[0].replace('github.com/guided-traffic/k8s-secret-operator/', '');
+                const pkg = parts[0].replace('github.com/guided-traffic/internal-secrets-operator/', '');
                 const cov = parts[parts.length - 1];
                 if (!pkgCoverage[pkg]) pkgCoverage[pkg] = cov;
               }
@@ -402,7 +402,7 @@ jobs:
             // Get unique packages with their coverage
             const uniquePkgs = [...new Set(lines.filter(l => !l.includes('total:')).map(l => {
               const parts = l.trim().split(/\s+/);
-              return parts[0].replace('github.com/guided-traffic/k8s-secret-operator/', '');
+              return parts[0].replace('github.com/guided-traffic/internal-secrets-operator/', '');
             }))];
 
             const body = `## 📊 Combined Coverage Report
@@ -474,12 +474,12 @@ jobs:
           platforms: linux/amd64
           push: false
           load: true
-          tags: k8s-secret-operator:scan-${{ github.sha }}
+          tags: internal-secrets-operator:scan-${{ github.sha }}
 
       - name: Run Trivy vulnerability scan
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: k8s-secret-operator:scan-${{ github.sha }}
+          image-ref: internal-secrets-operator:scan-${{ github.sha }}
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true
@@ -491,7 +491,7 @@ jobs:
         if: always()
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: k8s-secret-operator:scan-${{ github.sha }}
+          image-ref: internal-secrets-operator:scan-${{ github.sha }}
           format: 'sarif'
           output: 'trivy-results.sarif'
           scanners: 'vuln,secret,misconfig'
@@ -506,7 +506,7 @@ jobs:
 
       - name: Cleanup scan image
         if: always()
-        run: docker rmi k8s-secret-operator:scan-${{ github.sha }} || true
+        run: docker rmi internal-secrets-operator:scan-${{ github.sha }} || true
 
   semantic-release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

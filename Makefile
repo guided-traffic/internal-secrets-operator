@@ -1,5 +1,5 @@
 # Image URL to use for building/pushing image targets
-IMG ?= ghcr.io/guided-traffic/k8s-secret-operator:latest
+IMG ?= ghcr.io/guided-traffic/internal-secrets-operator:latest
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.29.0
@@ -105,8 +105,8 @@ kind-load: docker-build ## Build and load the operator image into Kind.
 .PHONY: e2e-local
 e2e-local: kind-create kind-load ## Run full E2E test locally with Kind.
 	@echo "Installing operator via Helm..."
-	helm install k8s-secret-operator deploy/helm/k8s-secret-operator \
-		--namespace k8s-secret-operator-system \
+	helm install internal-secrets-operator deploy/helm/internal-secrets-operator \
+		--namespace internal-secrets-operator-system \
 		--create-namespace \
 		--values test/e2e/helm-values.yaml \
 		--wait \

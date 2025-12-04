@@ -1,4 +1,4 @@
-# k8s-secret-operator Helm Chart
+# internal-secrets-operator Helm Chart
 
 A Kubernetes controller that automatically generates random secret values for Secrets with specific annotations.
 
@@ -7,7 +7,7 @@ For usage documentation and annotation reference, see the [main README](../../..
 ## Installation
 
 ```bash
-helm install k8s-secret-operator ./deploy/helm/k8s-secret-operator
+helm install internal-secrets-operator ./deploy/helm/internal-secrets-operator
 ```
 
 ## Values
@@ -24,7 +24,7 @@ helm install k8s-secret-operator ./deploy/helm/k8s-secret-operator
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `image.repository` | string | `"docker.io/guidedtraffic/k8s-secret-operator"` | Container image repository |
+| `image.repository` | string | `"docker.io/guidedtraffic/internal-secrets-operator"` | Container image repository |
 | `image.pullPolicy` | string | `"IfNotPresent"` | Image pull policy |
 | `image.tag` | string | `""` | Image tag (defaults to chart appVersion) |
 | `imagePullSecrets` | list | `[]` | Image pull secrets for private registries |
@@ -83,15 +83,15 @@ By default, the operator has access to Secrets in all namespaces via a ClusterRo
    apiVersion: rbac.authorization.k8s.io/v1
    kind: RoleBinding
    metadata:
-     name: k8s-secret-operator
+     name: internal-secrets-operator
      namespace: my-namespace
    roleRef:
      apiGroup: rbac.authorization.k8s.io
      kind: ClusterRole
-     name: k8s-secret-operator  # Use the ClusterRole created by the chart
+     name: internal-secrets-operator  # Use the ClusterRole created by the chart
    subjects:
      - kind: ServiceAccount
-       name: k8s-secret-operator
+       name: internal-secrets-operator
        namespace: default  # Namespace where the operator is installed
    ```
 
@@ -224,7 +224,7 @@ affinity:
         podAffinityTerm:
           labelSelector:
             matchLabels:
-              app.kubernetes.io/name: k8s-secret-operator
+              app.kubernetes.io/name: internal-secrets-operator
           topologyKey: kubernetes.io/hostname
 ```
 

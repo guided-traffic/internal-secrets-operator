@@ -30,12 +30,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/guided-traffic/k8s-secret-operator/pkg/config"
+	"github.com/guided-traffic/internal-secrets-operator/pkg/config"
 )
 
 const (
 	// Annotation constants
-	AnnotationPrefix       = "secgen.gtrfc.com/"
+	AnnotationPrefix       = "iso.gtrfc.com/"
 	AnnotationAutogenerate = AnnotationPrefix + "autogenerate"
 	AnnotationType         = AnnotationPrefix + "type"
 	AnnotationLength       = AnnotationPrefix + "length"

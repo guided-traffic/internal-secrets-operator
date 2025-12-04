@@ -31,13 +31,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	"github.com/guided-traffic/k8s-secret-operator/pkg/config"
-	"github.com/guided-traffic/k8s-secret-operator/pkg/generator"
+	"github.com/guided-traffic/internal-secrets-operator/pkg/config"
+	"github.com/guided-traffic/internal-secrets-operator/pkg/generator"
 )
 
 const (
 	// AnnotationPrefix is the prefix for all secret operator annotations
-	AnnotationPrefix = "secgen.gtrfc.com/"
+	AnnotationPrefix = "iso.gtrfc.com/"
 
 	// AnnotationAutogenerate specifies which fields to auto-generate
 	AnnotationAutogenerate = AnnotationPrefix + "autogenerate"

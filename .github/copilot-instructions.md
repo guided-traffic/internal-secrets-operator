@@ -1,10 +1,10 @@
-# Kubernetes Secret Operator
+# Internal Secrets Operator
 
 ## Project Overview
 
 This project implements a custom Kubernetes controller that automatically generates random secret values. It can be used for auto-generating random credentials for applications running on Kubernetes.
 
-**Repository:** https://github.com/guided-traffic/k8s-secret-operator
+**Repository:** https://github.com/guided-traffic/internal-secrets-operator
 
 **Note:** This project is in early development and has no releases yet. All changes are considered breaking changes, but since there are no users yet, backwards compatibility is not required at this stage.
 
@@ -18,7 +18,7 @@ This project implements a custom Kubernetes controller that automatically genera
 
 ### Annotation Schema
 
-The operator uses annotations with the prefix `secgen.gtrfc.com/`:
+The operator uses annotations with the prefix `iso.gtrfc.com/`:
 
 | Annotation | Description | Values |
 |------------|-------------|--------|
@@ -80,13 +80,13 @@ kind: Secret
 metadata:
   name: example-secret
   annotations:
-    secgen.gtrfc.com/autogenerate: password,encryption-key
-    secgen.gtrfc.com/type: string
-    secgen.gtrfc.com/length: "24"
-    secgen.gtrfc.com/string.specialChars: "true"
-    secgen.gtrfc.com/string.allowedSpecialChars: "!@#$"
-    secgen.gtrfc.com/type.encryption-key: bytes
-    secgen.gtrfc.com/length.encryption-key: "32"
+    iso.gtrfc.com/autogenerate: password,encryption-key
+    iso.gtrfc.com/type: string
+    iso.gtrfc.com/length: "24"
+    iso.gtrfc.com/string.specialChars: "true"
+    iso.gtrfc.com/string.allowedSpecialChars: "!@#$"
+    iso.gtrfc.com/type.encryption-key: bytes
+    iso.gtrfc.com/length.encryption-key: "32"
 data:
   username: c29tZXVzZXI=
 ```
@@ -98,14 +98,14 @@ kind: Secret
 metadata:
   name: example-secret
   annotations:
-    secgen.gtrfc.com/autogenerate: password,encryption-key
-    secgen.gtrfc.com/type: string
-    secgen.gtrfc.com/length: "24"
-    secgen.gtrfc.com/string.specialChars: "true"
-    secgen.gtrfc.com/string.allowedSpecialChars: "!@#$"
-    secgen.gtrfc.com/type.encryption-key: bytes
-    secgen.gtrfc.com/length.encryption-key: "32"
-    secgen.gtrfc.com/generated-at: "2025-12-03T10:00:00+01:00"
+    iso.gtrfc.com/autogenerate: password,encryption-key
+    iso.gtrfc.com/type: string
+    iso.gtrfc.com/length: "24"
+    iso.gtrfc.com/string.specialChars: "true"
+    iso.gtrfc.com/string.allowedSpecialChars: "!@#$"
+    iso.gtrfc.com/type.encryption-key: bytes
+    iso.gtrfc.com/length.encryption-key: "32"
+    iso.gtrfc.com/generated-at: "2025-12-03T10:00:00+01:00"
 type: Opaque
 data:
   username: c29tZXVzZXI=
@@ -213,7 +213,7 @@ config:
 ## File Structure
 
 ```
-k8s-secret-operator/
+internal-secrets-operator/
 ├── .github/
 │   ├── copilot-instructions.md
 │   └── workflows/
@@ -234,7 +234,7 @@ k8s-secret-operator/
 │   └── samples/
 ├── deploy/
 │   └── helm/
-│       └── k8s-secret-operator/
+│       └── internal-secrets-operator/
 ├── test/
 │   └── e2e/
 ├── Containerfile
@@ -247,7 +247,7 @@ k8s-secret-operator/
 
 ### Code Changes Required
 
-- [x] Update annotation prefix from `secret-generator.v1.guided-traffic.com/` to `secgen.gtrfc.com/`
+- [x] Update annotation prefix from `secgen.gtrfc.com/` to `iso.gtrfc.com/`
 - [x] Remove `regenerate` annotation support
 - [x] Remove `uuid` and `hex` generation types
 - [x] Rename `base64` type to `bytes`

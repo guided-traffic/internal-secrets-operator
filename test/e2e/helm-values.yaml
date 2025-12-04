@@ -1,10 +1,10 @@
 # Used when installing the operator in Kind cluster
 #
 # For CI pipeline, override image with:
-#   --set image.repository=k8s-secret-operator --set image.tag=test
+#   --set image.repository=internal-secrets-operator --set image.tag=test
 
 image:
-  repository: ghcr.io/guided-traffic/k8s-secret-operator
+  repository: ghcr.io/guided-traffic/internal-secrets-operator
   pullPolicy: Never  # Image is loaded directly into Kind
   tag: "latest"
 

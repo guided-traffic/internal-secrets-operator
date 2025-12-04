@@ -1,8 +1,8 @@
-# Kubernetes Secret Operator
+# Internal Secrets Operator
 
-[![Build Status](https://github.com/guided-traffic/k8s-secret-operator/actions/workflows/release.yml/badge.svg)](https://github.com/guided-traffic/k8s-secret-operator/actions)
-[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/guided-traffic/k8s-secret-operator/main/.github/badges/coverage.json)](https://github.com/guided-traffic/k8s-secret-operator)
-[![Go Report Card](https://goreportcard.com/badge/github.com/guided-traffic/k8s-secret-operator)](https://goreportcard.com/report/github.com/guided-traffic/k8s-secret-operator)
+[![Build Status](https://github.com/guided-traffic/internal-secrets-operator/actions/workflows/release.yml/badge.svg)](https://github.com/guided-traffic/internal-secrets-operator/actions)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/guided-traffic/internal-secrets-operator/main/.github/badges/coverage.json)](https://github.com/guided-traffic/internal-secrets-operator)
+[![Go Report Card](https://goreportcard.com/badge/github.com/guided-traffic/internal-secrets-operator)](https://goreportcard.com/report/github.com/guided-traffic/internal-secrets-operator)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 A Kubernetes operator that automatically generates random secret values. Use it for auto-generating random credentials for applications running on Kubernetes.
@@ -23,14 +23,14 @@ A Kubernetes operator that automatically generates random secret values. Use it 
 #### Using Helm
 
 ```bash
-helm repo add k8s-secret-operator https://guided-traffic.github.io/k8s-secret-operator
-helm install k8s-secret-operator k8s-secret-operator/k8s-secret-operator
+helm repo add internal-secrets-operator https://guided-traffic.github.io/internal-secrets-operator
+helm install internal-secrets-operator internal-secrets-operator/internal-secrets-operator
 ```
 
 #### Using Kustomize
 
 ```bash
-kubectl apply -k https://github.com/guided-traffic/k8s-secret-operator/config/default
+kubectl apply -k https://github.com/guided-traffic/internal-secrets-operator/config/default
 ```
 
 ### Usage
@@ -43,7 +43,7 @@ kind: Secret
 metadata:
   name: example-secret
   annotations:
-    secgen.gtrfc.com/autogenerate: password
+    iso.gtrfc.com/autogenerate: password
 data:
   username: c29tZXVzZXI=  # someuser (base64 encoded)
 ```
@@ -56,8 +56,8 @@ kind: Secret
 metadata:
   name: example-secret
   annotations:
-    secgen.gtrfc.com/autogenerate: password
-    secgen.gtrfc.com/generated-at: "2025-12-03T10:00:00+01:00"
+    iso.gtrfc.com/autogenerate: password
+    iso.gtrfc.com/generated-at: "2025-12-03T10:00:00+01:00"
 type: Opaque
 data:
   username: c29tZXVzZXI=
@@ -66,7 +66,7 @@ data:
 
 ## Annotations
 
-All annotations use the prefix `secgen.gtrfc.com/`.
+All annotations use the prefix `iso.gtrfc.com/`.
 
 ### Core Annotations
 
@@ -98,7 +98,7 @@ kind: Secret
 metadata:
   name: multi-field-secret
   annotations:
-    secgen.gtrfc.com/autogenerate: password,api-key,token
+    iso.gtrfc.com/autogenerate: password,api-key,token
 type: Opaque
 ```
 
@@ -110,8 +110,8 @@ kind: Secret
 metadata:
   name: custom-length-secret
   annotations:
-    secgen.gtrfc.com/autogenerate: password
-    secgen.gtrfc.com/length: "64"
+    iso.gtrfc.com/autogenerate: password
+    iso.gtrfc.com/length: "64"
 type: Opaque
 ```
 
@@ -123,9 +123,9 @@ kind: Secret
 metadata:
   name: encryption-secret
   annotations:
-    secgen.gtrfc.com/autogenerate: encryption-key
-    secgen.gtrfc.com/type: bytes
-    secgen.gtrfc.com/length: "32"
+    iso.gtrfc.com/autogenerate: encryption-key
+    iso.gtrfc.com/type: bytes
+    iso.gtrfc.com/length: "32"
 type: Opaque
 ```
 
@@ -139,11 +139,11 @@ kind: Secret
 metadata:
   name: mixed-secret
   annotations:
-    secgen.gtrfc.com/autogenerate: password,encryption-key
-    secgen.gtrfc.com/type: string
-    secgen.gtrfc.com/length: "24"
-    secgen.gtrfc.com/type.encryption-key: bytes
-    secgen.gtrfc.com/length.encryption-key: "32"
+    iso.gtrfc.com/autogenerate: password,encryption-key
+    iso.gtrfc.com/type: string
+    iso.gtrfc.com/length: "24"
+    iso.gtrfc.com/type.encryption-key: bytes
+    iso.gtrfc.com/length.encryption-key: "32"
 type: Opaque
 data:
   username: c29tZXVzZXI=
@@ -211,14 +211,14 @@ config:
 ### Example: Enable Special Characters by Default
 
 ```bash
-helm install k8s-secret-operator k8s-secret-operator/k8s-secret-operator \
+helm install internal-secrets-operator internal-secrets-operator/internal-secrets-operator \
   --set config.defaults.string.specialChars=true \
   --set config.defaults.string.allowedSpecialChars='!@#$%'
 ```
 
 > **Note:** At least one of `uppercase`, `lowercase`, `numbers`, or `specialChars` must be enabled.
 
-For the complete list of all Helm chart values including image configuration, resources, autoscaling, monitoring, and more, see the [Helm Chart Documentation](deploy/helm/k8s-secret-operator/README.md).
+For the complete list of all Helm chart values including image configuration, resources, autoscaling, monitoring, and more, see the [Helm Chart Documentation](deploy/helm/internal-secrets-operator/README.md).
 
 ## Configuration File
 
@@ -290,8 +290,8 @@ The operator validates the configuration at startup and will fail to start if:
 
 Configuration values are applied in the following order (highest priority first):
 
-1. **Per-field annotations** (`secgen.gtrfc.com/type.<field>`, `secgen.gtrfc.com/length.<field>`)
-2. **Secret-level annotations** (`secgen.gtrfc.com/type`, `secgen.gtrfc.com/length`)
+1. **Per-field annotations** (`iso.gtrfc.com/type.<field>`, `iso.gtrfc.com/length.<field>`)
+2. **Secret-level annotations** (`iso.gtrfc.com/type`, `iso.gtrfc.com/length`)
 3. **Configuration file** (`/etc/secret-operator/config.yaml`)
 4. **Built-in defaults** (used if config file doesn't exist)
 
@@ -383,7 +383,7 @@ For environments where you need fine-grained control over which namespaces the o
 Install or upgrade the Helm chart with the ClusterRoleBinding disabled:
 
 ```bash
-helm install k8s-secret-operator k8s-secret-operator/k8s-secret-operator \
+helm install internal-secrets-operator internal-secrets-operator/internal-secrets-operator \
   --set rbac.clusterRoleBinding.enabled=false
 ```
 
@@ -403,16 +403,16 @@ Create a RoleBinding in each namespace where the operator should have access. Th
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: k8s-secret-operator
+  name: internal-secrets-operator
   namespace: my-app-namespace  # The namespace to grant access to
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: k8s-secret-operator  # Must match the ClusterRole name from the Helm release
+  name: internal-secrets-operator  # Must match the ClusterRole name from the Helm release
 subjects:
   - kind: ServiceAccount
-    name: k8s-secret-operator  # Must match the ServiceAccount name from the Helm release
-    namespace: k8s-secret-operator  # The namespace where the operator is deployed
+    name: internal-secrets-operator  # Must match the ServiceAccount name from the Helm release
+    namespace: internal-secrets-operator  # The namespace where the operator is deployed
 ```
 
 > **Note:** If you customized the Helm release name or used `fullnameOverride`, adjust the ClusterRole and ServiceAccount names accordingly.
@@ -424,9 +424,9 @@ To grant access to `production`, `staging`, and `development` namespaces:
 ```bash
 # Create RoleBindings in each namespace
 for ns in production staging development; do
-  kubectl create rolebinding k8s-secret-operator \
-    --clusterrole=k8s-secret-operator \
-    --serviceaccount=k8s-secret-operator:k8s-secret-operator \
+  kubectl create rolebinding internal-secrets-operator \
+    --clusterrole=internal-secrets-operator \
+    --serviceaccount=internal-secrets-operator:internal-secrets-operator \
     --namespace=$ns
 done
 ```
@@ -438,44 +438,44 @@ Or using a manifest:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: k8s-secret-operator
+  name: internal-secrets-operator
   namespace: production
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: k8s-secret-operator
+  name: internal-secrets-operator
 subjects:
   - kind: ServiceAccount
-    name: k8s-secret-operator
-    namespace: k8s-secret-operator
+    name: internal-secrets-operator
+    namespace: internal-secrets-operator
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: k8s-secret-operator
+  name: internal-secrets-operator
   namespace: staging
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: k8s-secret-operator
+  name: internal-secrets-operator
 subjects:
   - kind: ServiceAccount
-    name: k8s-secret-operator
-    namespace: k8s-secret-operator
+    name: internal-secrets-operator
+    namespace: internal-secrets-operator
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: k8s-secret-operator
+  name: internal-secrets-operator
   namespace: development
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: k8s-secret-operator
+  name: internal-secrets-operator
 subjects:
   - kind: ServiceAccount
-    name: k8s-secret-operator
-    namespace: k8s-secret-operator
+    name: internal-secrets-operator
+    namespace: internal-secrets-operator
 ```
 
 ### Why Use a ClusterRole with RoleBindings?

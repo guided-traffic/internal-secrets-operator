@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/zap/zapcore"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -38,9 +39,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/guided-traffic/k8s-secret-operator/internal/controller"
-	"github.com/guided-traffic/k8s-secret-operator/pkg/config"
-	"github.com/guided-traffic/k8s-secret-operator/pkg/generator"
+	"github.com/guided-traffic/internal-secrets-operator/internal/controller"
+	"github.com/guided-traffic/internal-secrets-operator/pkg/config"
+	"github.com/guided-traffic/internal-secrets-operator/pkg/generator"
 )
 
 var (
@@ -52,7 +53,13 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	logf.SetLogger(zap.New(zap.WriteTo(os.Stdout), zap.UseDevMode(true)))
+	// Configure logger without stacktraces for cleaner test output
+	// StacktraceLevel set to panic means stacktraces only appear for panic-level logs
+	logf.SetLogger(zap.New(
+		zap.WriteTo(os.Stdout),
+		zap.UseDevMode(false),
+		zap.StacktraceLevel(zapcore.PanicLevel),
+	))
 
 	testEnv = &envtest.Environment{
 		ErrorIfCRDPathMissing: false,

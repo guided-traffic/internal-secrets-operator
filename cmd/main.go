@@ -29,9 +29,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/guided-traffic/k8s-secret-operator/internal/controller"
-	"github.com/guided-traffic/k8s-secret-operator/pkg/config"
-	"github.com/guided-traffic/k8s-secret-operator/pkg/generator"
+	"github.com/guided-traffic/internal-secrets-operator/internal/controller"
+	"github.com/guided-traffic/internal-secrets-operator/pkg/config"
+	"github.com/guided-traffic/internal-secrets-operator/pkg/generator"
 )
 
 var (

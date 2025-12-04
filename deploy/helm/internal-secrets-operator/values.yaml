@@ -1,10 +1,10 @@
-# Default values for k8s-secret-operator.
+# Default values for internal-secrets-operator.
 
 # Number of controller replicas
 replicaCount: 1
 
 image:
-  repository: docker.io/guidedtraffic/k8s-secret-operator
+  repository: docker.io/guidedtraffic/internal-secrets-operator
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   tag: ""

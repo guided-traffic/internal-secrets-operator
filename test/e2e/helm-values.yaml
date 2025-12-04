@@ -24,3 +24,10 @@ readinessProbe:
 resources:
   limits:
     cpu: 200m
+
+# Rotation configuration for E2E tests
+config:
+  rotation:
+    # Short minInterval for testing rotation feature
+    minInterval: 5s
+    createEvents: true

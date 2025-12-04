@@ -51,6 +51,18 @@ lint: ## Run linting.
 	@which golangci-lint > /dev/null || (echo "Installing golangci-lint..." && go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION))
 	golangci-lint run --timeout=5m
 
+.PHONY: cyclo
+cyclo: ## Run cyclomatic complexity analysis.
+	@echo "Running cyclomatic complexity analysis (threshold: $(CYCLO_THRESHOLD))..."
+	@which gocyclo > /dev/null || (echo "Installing gocyclo..." && go install github.com/fzipp/gocyclo/cmd/gocyclo@$(GOCYCLO_VERSION))
+	@gocyclo -over $(CYCLO_THRESHOLD) -ignore "_test.go" . && echo "✅ All functions are below complexity threshold $(CYCLO_THRESHOLD)" || (echo "❌ Functions above complexity threshold $(CYCLO_THRESHOLD) found!" && gocyclo -over $(CYCLO_THRESHOLD) -ignore "_test.go" . && exit 1)
+
+.PHONY: cyclo-report
+cyclo-report: ## Show full cyclomatic complexity report (including tests).
+	@echo "Cyclomatic complexity report (sorted by complexity):"
+	@which gocyclo > /dev/null || (echo "Installing gocyclo..." && go install github.com/fzipp/gocyclo/cmd/gocyclo@$(GOCYCLO_VERSION))
+	@gocyclo -top 20 .
+
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes.
 	$(GOLANGCI_LINT) run --fix
@@ -243,6 +255,10 @@ GOLANGCI_LINT ?= $(LOCALBIN)/golangci-lint
 KUSTOMIZE_VERSION ?= v5.3.0
 ENVTEST_VERSION ?= release-0.17
 GOLANGCI_LINT_VERSION ?= v1.55.2
+GOCYCLO_VERSION ?= v0.6.0
+
+# Cyclomatic complexity threshold (recommended: 10-15)
+CYCLO_THRESHOLD ?= 15
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.

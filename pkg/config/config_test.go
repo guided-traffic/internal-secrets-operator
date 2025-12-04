@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestNewDefaultConfig(t *testing.T) {
@@ -45,6 +46,13 @@ func TestNewDefaultConfig(t *testing.T) {
 	}
 	if cfg.Defaults.String.AllowedSpecialChars != DefaultAllowedSpecialChars {
 		t.Errorf("expected allowedSpecialChars %q, got %q", DefaultAllowedSpecialChars, cfg.Defaults.String.AllowedSpecialChars)
+	}
+	// Test rotation defaults
+	if cfg.Rotation.MinInterval.Duration() != DefaultRotationMinInterval {
+		t.Errorf("expected rotation minInterval %v, got %v", DefaultRotationMinInterval, cfg.Rotation.MinInterval.Duration())
+	}
+	if cfg.Rotation.CreateEvents {
+		t.Error("expected rotation createEvents to be false")
 	}
 }
 
@@ -432,5 +440,180 @@ defaults:
 	_, err := LoadConfig(configPath)
 	if err == nil {
 		t.Error("expected validation error, got nil")
+	}
+}
+
+func TestParseDuration(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected time.Duration
+		wantErr  bool
+	}{
+		{
+			name:     "empty string",
+			input:    "",
+			expected: 0,
+			wantErr:  false,
+		},
+		{
+			name:     "seconds",
+			input:    "30s",
+			expected: 30 * time.Second,
+			wantErr:  false,
+		},
+		{
+			name:     "minutes",
+			input:    "5m",
+			expected: 5 * time.Minute,
+			wantErr:  false,
+		},
+		{
+			name:     "hours",
+			input:    "24h",
+			expected: 24 * time.Hour,
+			wantErr:  false,
+		},
+		{
+			name:     "combined",
+			input:    "1h30m",
+			expected: 1*time.Hour + 30*time.Minute,
+			wantErr:  false,
+		},
+		{
+			name:     "days",
+			input:    "7d",
+			expected: 7 * 24 * time.Hour,
+			wantErr:  false,
+		},
+		{
+			name:     "fractional days",
+			input:    "1.5d",
+			expected: 36 * time.Hour,
+			wantErr:  false,
+		},
+		{
+			name:    "invalid duration",
+			input:   "invalid",
+			wantErr: true,
+		},
+		{
+			name:    "invalid days format",
+			input:   "abcd",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseDuration(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+			if got != tt.expected {
+				t.Errorf("expected %v, got %v", tt.expected, got)
+			}
+		})
+	}
+}
+
+func TestDurationUnmarshalYAML(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	configContent := `
+defaults:
+  type: string
+  length: 32
+  string:
+    uppercase: true
+    lowercase: true
+    numbers: true
+rotation:
+  minInterval: 10m
+  createEvents: true
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Rotation.MinInterval.Duration() != 10*time.Minute {
+		t.Errorf("expected minInterval 10m, got %v", cfg.Rotation.MinInterval.Duration())
+	}
+	if !cfg.Rotation.CreateEvents {
+		t.Error("expected createEvents to be true")
+	}
+}
+
+func TestLoadConfigRotationWithDays(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	configContent := `
+defaults:
+  type: string
+  length: 32
+  string:
+    uppercase: true
+    lowercase: true
+    numbers: true
+rotation:
+  minInterval: 1d
+  createEvents: false
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Rotation.MinInterval.Duration() != 24*time.Hour {
+		t.Errorf("expected minInterval 24h (1d), got %v", cfg.Rotation.MinInterval.Duration())
+	}
+}
+
+func TestLoadConfigRotationDefaults(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	// Config without rotation section - should use defaults
+	configContent := `
+defaults:
+  type: string
+  length: 32
+  string:
+    uppercase: true
+    lowercase: true
+    numbers: true
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Rotation.MinInterval.Duration() != DefaultRotationMinInterval {
+		t.Errorf("expected default minInterval %v, got %v", DefaultRotationMinInterval, cfg.Rotation.MinInterval.Duration())
+	}
+	if cfg.Rotation.CreateEvents {
+		t.Error("expected default createEvents to be false")
 	}
 }

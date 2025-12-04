@@ -27,12 +27,14 @@ The operator uses annotations with the prefix `iso.gtrfc.com/`:
 | `length` | Default length for all fields | Integer (default: 32) |
 | `type.<field>` | Type for a specific field (overrides default) | `string`, `bytes` |
 | `length.<field>` | Length for a specific field (overrides default) | Integer |
+| `rotate` | Default rotation interval for all fields | Duration (e.g., `24h`, `7d`) |
+| `rotate.<field>` | Rotation interval for a specific field (overrides default) | Duration |
 | `string.uppercase` | Include uppercase letters (A-Z) | `true` (default), `false` |
 | `string.lowercase` | Include lowercase letters (a-z) | `true` (default), `false` |
 | `string.numbers` | Include numbers (0-9) | `true` (default), `false` |
 | `string.specialChars` | Include special characters | `true`, `false` (default) |
 | `string.allowedSpecialChars` | Which special characters to use | e.g., `!@#$%^&*` |
-| `generated-at` | Timestamp of last patch by operator (set by operator) | ISO 8601 format |
+| `generated-at` | Timestamp of last generation/rotation (set by operator) | ISO 8601 format |
 
 **Priority:** Annotation values override config file defaults.
 
@@ -154,6 +156,10 @@ defaults:
     numbers: true
     specialChars: false
     allowedSpecialChars: "!@#$%^&*()_+-=[]{}|;:,.<>?"
+
+rotation:
+  minInterval: 5m
+  createEvents: false
 ```
 
 **Configuration options:**
@@ -167,6 +173,8 @@ defaults:
 | `defaults.string.numbers` | Include numbers (0-9) | `true` |
 | `defaults.string.specialChars` | Include special characters | `false` |
 | `defaults.string.allowedSpecialChars` | Which special characters to use | `!@#$%^&*()_+-=[]{}|;:,.<>?` |
+| `rotation.minInterval` | Minimum allowed rotation interval | `5m` |
+| `rotation.createEvents` | Create Normal Events when secrets are rotated | `false` |
 
 **Note:** At least one of `uppercase`, `lowercase`, `numbers`, or `specialChars` must be `true`.
 
@@ -186,6 +194,9 @@ config:
       numbers: true
       specialChars: false
       allowedSpecialChars: "!@#$%^&*()_+-=[]{}|;:,.<>?"
+  rotation:
+    minInterval: 5m
+    createEvents: false
 ```
 
 ## Coding Guidelines
@@ -209,6 +220,10 @@ config:
 2. Table-driven tests
 3. Mock external dependencies
 4. Use envtest for controller tests
+
+### Git Workflow
+
+**Important:** Copilot never commits to Git autonomously. All Git commits are performed exclusively by the developer.
 
 ## File Structure
 
@@ -245,46 +260,7 @@ internal-secrets-operator/
 
 ## TODO
 
-### Code Changes Required
+### Per-Secret Charset Annotations
 
-- [x] Update annotation prefix from `secgen.gtrfc.com/` to `iso.gtrfc.com/`
-- [x] Remove `regenerate` annotation support
-- [x] Remove `uuid` and `hex` generation types
-- [x] Rename `base64` type to `bytes`
-- [x] Remove `secure` annotation (operator is always secure by design)
-- [x] Implement field-specific type/length configuration (`type.<field>`, `length.<field>`)
-- [x] Simplify operator-set annotations to only `generated-at`
-- [x] Implement configuration file loading at startup
-- [x] Add configurable charset for `string` type (uppercase, lowercase, numbers, specialChars, allowedSpecialChars)
-- [x] Add validation: at least one charset option must be enabled
-- [x] Implement Warning Events on Secrets when errors occur
-- [ ] Implement per-Secret charset annotations (`string.uppercase`, `string.lowercase`, `string.numbers`, `string.specialChars`, `string.allowedSpecialChars`) in secret_controller.go
-
-### Helm Chart
-
-- [x] Add `config` section to `values.yaml` with all configuration options
-- [x] Create ConfigMap template for operator configuration
-- [x] Mount ConfigMap as config file in deployment
-- [x] Add `rbac.clusterRoleBinding.enabled` option (default: true)
-- [x] Document how to set up RoleBindings for restricted namespace access
-
-### Testing
-
-- [x] Update unit tests for new annotation schema
-- [x] Update integration tests (envtest-based)
-- [x] Update e2e tests
-- [x] Add tests for configuration file loading
-- [x] Add tests for charset configuration
-- [ ] Add e2e tests for per-Secret charset annotations (after feature is implemented)
-
-### CI/CD
-
-- [x] Integrate integration tests (envtest) into CI pipeline
-- [x] Generate combined line coverage report (unit tests + integration tests)
-
-### Documentation
-
-- [x] Update README.md with new annotation schema
-- [x] Update sample secrets in `config/samples/`
-- [x] Update Helm chart values documentation
-- [x] Document configuration file options
+- [ ] Implement per-Secret charset annotations (`string.uppercase`, `string.lowercase`, `string.numbers`, `string.specialChars`, `string.allowedSpecialChars`) in `secret_controller.go`
+- [ ] Add e2e tests for per-Secret charset annotations

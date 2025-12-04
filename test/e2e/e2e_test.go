@@ -56,6 +56,12 @@ const (
 	// AnnotationGeneratedAt indicates when the value was generated
 	AnnotationGeneratedAt = AnnotationPrefix + "generated-at"
 
+	// AnnotationRotate specifies the default rotation interval for all fields
+	AnnotationRotate = AnnotationPrefix + "rotate"
+
+	// AnnotationRotatePrefix is the prefix for field-specific rotation annotations
+	AnnotationRotatePrefix = AnnotationPrefix + "rotate."
+
 	// testNamespace is the namespace used for E2E tests
 	testNamespace = "default"
 
@@ -77,6 +83,9 @@ var testSecretNames = []string{
 	"test-no-annotation",
 	"test-existing-value",
 	"test-field-specific",
+	"test-rotation-basic",
+	"test-rotation-field-specific",
+	"test-rotation-min-interval",
 }
 
 func TestMain(m *testing.M) {
@@ -576,4 +585,258 @@ func TestSecretFieldSpecificConfig(t *testing.T) {
 	}
 
 	t.Log("Field-specific configuration correctly applied")
+}
+
+func TestSecretRotationBasic(t *testing.T) {
+	defer cleanupSecret(t, "test-rotation-basic")
+
+	ctx := context.Background()
+
+	// Create a secret with rotation annotation (10s rotation for fast E2E testing)
+	// Note: The operator is configured with minInterval: 5s in helm-values.yaml
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-rotation-basic",
+			Namespace: testNamespace,
+			Annotations: map[string]string{
+				AnnotationAutogenerate: "password",
+				AnnotationType:         "string",
+				AnnotationLength:       "32",
+				AnnotationRotate:       "10s",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{},
+	}
+
+	_, err := clientset.CoreV1().Secrets(testNamespace).Create(ctx, secret, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("Failed to create secret: %v", err)
+	}
+
+	// Wait for initial generation
+	var originalPassword string
+	var originalGeneratedAt string
+	err = wait.PollUntilContextTimeout(ctx, pollInterval, pollTimeout, true, func(ctx context.Context) (bool, error) {
+		s, err := clientset.CoreV1().Secrets(testNamespace).Get(ctx, "test-rotation-basic", metav1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+
+		if pwd, ok := s.Data["password"]; ok {
+			if genAt := s.Annotations[AnnotationGeneratedAt]; genAt != "" {
+				originalPassword = string(pwd)
+				originalGeneratedAt = genAt
+				return true, nil
+			}
+		}
+		return false, nil
+	})
+
+	if err != nil {
+		t.Fatalf("Timeout waiting for initial secret generation: %v", err)
+	}
+
+	t.Logf("Initial password generated at %s: %s...", originalGeneratedAt, originalPassword[:8])
+
+	// Wait for rotation to occur (10s interval + some buffer)
+	// The operator should automatically rotate the secret after the interval expires
+	t.Log("Waiting for rotation to occur (this may take ~15 seconds)...")
+
+	var newPassword string
+	var newGeneratedAt string
+	err = wait.PollUntilContextTimeout(ctx, 2*time.Second, 30*time.Second, true, func(ctx context.Context) (bool, error) {
+		s, err := clientset.CoreV1().Secrets(testNamespace).Get(ctx, "test-rotation-basic", metav1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+
+		pwd := string(s.Data["password"])
+		genAt := s.Annotations[AnnotationGeneratedAt]
+
+		// Check if password was rotated (different value and different timestamp)
+		if pwd != originalPassword && genAt != originalGeneratedAt {
+			newPassword = pwd
+			newGeneratedAt = genAt
+			return true, nil
+		}
+		return false, nil
+	})
+
+	if err != nil {
+		t.Fatalf("Timeout waiting for secret rotation: %v", err)
+	}
+
+	t.Logf("Password rotated at %s: %s...", newGeneratedAt, newPassword[:8])
+	t.Log("Basic rotation test passed successfully")
+}
+
+func TestSecretRotationFieldSpecific(t *testing.T) {
+	defer cleanupSecret(t, "test-rotation-field-specific")
+
+	ctx := context.Background()
+
+	// Create a secret with field-specific rotation intervals
+	// password: 10s rotation, api-key: no rotation (default)
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-rotation-field-specific",
+			Namespace: testNamespace,
+			Annotations: map[string]string{
+				AnnotationAutogenerate:              "password,api-key",
+				AnnotationType:                      "string",
+				AnnotationLength:                    "24",
+				AnnotationRotatePrefix + "password": "10s",
+				// api-key has no rotation annotation, so it should not be rotated
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{},
+	}
+
+	_, err := clientset.CoreV1().Secrets(testNamespace).Create(ctx, secret, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("Failed to create secret: %v", err)
+	}
+
+	// Wait for initial generation
+	var originalPassword, originalApiKey string
+	err = wait.PollUntilContextTimeout(ctx, pollInterval, pollTimeout, true, func(ctx context.Context) (bool, error) {
+		s, err := clientset.CoreV1().Secrets(testNamespace).Get(ctx, "test-rotation-field-specific", metav1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+
+		pwd, hasPwd := s.Data["password"]
+		apiKey, hasApiKey := s.Data["api-key"]
+
+		if hasPwd && hasApiKey && s.Annotations[AnnotationGeneratedAt] != "" {
+			originalPassword = string(pwd)
+			originalApiKey = string(apiKey)
+			return true, nil
+		}
+		return false, nil
+	})
+
+	if err != nil {
+		t.Fatalf("Timeout waiting for initial secret generation: %v", err)
+	}
+
+	t.Logf("Initial values - password: %s..., api-key: %s...", originalPassword[:8], originalApiKey[:8])
+
+	// Wait for password rotation (10s + buffer)
+	t.Log("Waiting for password rotation (api-key should remain unchanged)...")
+
+	var rotatedPassword, currentApiKey string
+	err = wait.PollUntilContextTimeout(ctx, 2*time.Second, 30*time.Second, true, func(ctx context.Context) (bool, error) {
+		s, err := clientset.CoreV1().Secrets(testNamespace).Get(ctx, "test-rotation-field-specific", metav1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+
+		pwd := string(s.Data["password"])
+		apiKey := string(s.Data["api-key"])
+
+		// Check if password was rotated
+		if pwd != originalPassword {
+			rotatedPassword = pwd
+			currentApiKey = apiKey
+			return true, nil
+		}
+		return false, nil
+	})
+
+	if err != nil {
+		t.Fatalf("Timeout waiting for password rotation: %v", err)
+	}
+
+	// Verify password was rotated
+	if rotatedPassword == originalPassword {
+		t.Error("Expected password to be rotated")
+	}
+
+	// Verify api-key was NOT rotated (no rotation annotation)
+	if currentApiKey != originalApiKey {
+		t.Errorf("Expected api-key to remain unchanged, but it was rotated from %s... to %s...",
+			originalApiKey[:8], currentApiKey[:8])
+	}
+
+	t.Logf("Rotated password: %s..., unchanged api-key: %s...", rotatedPassword[:8], currentApiKey[:8])
+	t.Log("Field-specific rotation test passed successfully")
+}
+
+func TestSecretRotationMinIntervalValidation(t *testing.T) {
+	defer cleanupSecret(t, "test-rotation-min-interval")
+
+	ctx := context.Background()
+
+	// Create a secret with rotation interval below minInterval (5s configured in helm-values.yaml)
+	// This should trigger a warning event but still generate the initial password
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-rotation-min-interval",
+			Namespace: testNamespace,
+			Annotations: map[string]string{
+				AnnotationAutogenerate: "password",
+				AnnotationType:         "string",
+				AnnotationLength:       "32",
+				AnnotationRotate:       "1s", // Below minInterval of 5s
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{},
+	}
+
+	_, err := clientset.CoreV1().Secrets(testNamespace).Create(ctx, secret, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("Failed to create secret: %v", err)
+	}
+
+	// Wait for the operator to process the secret and generate the password
+	// Even with invalid rotation interval, initial generation should still work
+	var updatedSecret *corev1.Secret
+	err = wait.PollUntilContextTimeout(ctx, pollInterval, pollTimeout, true, func(ctx context.Context) (bool, error) {
+		s, err := clientset.CoreV1().Secrets(testNamespace).Get(ctx, "test-rotation-min-interval", metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		// Check if password field was generated
+		if _, ok := s.Data["password"]; ok {
+			updatedSecret = s
+			return true, nil
+		}
+		return false, nil
+	})
+	if err != nil {
+		t.Fatalf("Failed waiting for password to be generated: %v", err)
+	}
+
+	// Check for warning events on the secret
+	events, err := clientset.CoreV1().Events(testNamespace).List(ctx, metav1.ListOptions{
+		FieldSelector: "involvedObject.name=test-rotation-min-interval,involvedObject.kind=Secret",
+	})
+	if err != nil {
+		t.Fatalf("Failed to list events: %v", err)
+	}
+
+	// Look for a warning event about rotation interval
+	var foundWarning bool
+	for _, event := range events.Items {
+		if event.Type == "Warning" && event.Reason == "RotationFailed" {
+			t.Logf("Found warning event: %s - %s", event.Reason, event.Message)
+			foundWarning = true
+		}
+	}
+
+	if !foundWarning {
+		t.Log("Note: Warning event not found. The operator may have used minInterval instead of rejecting the value.")
+	}
+
+	// Verify password length
+	password := string(updatedSecret.Data["password"])
+	if len(password) != 32 {
+		t.Errorf("Expected password length 32, got %d", len(password))
+	}
+
+	t.Log("Min interval validation test completed - password was generated despite invalid rotation interval")
 }

@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -36,11 +37,15 @@ const (
 
 	// DefaultAllowedSpecialChars is the default set of special characters
 	DefaultAllowedSpecialChars = "!@#$%^&*()_+-=[]{}|;:,.<>?"
+
+	// DefaultRotationMinInterval is the minimum allowed rotation interval
+	DefaultRotationMinInterval = 5 * time.Minute
 )
 
 // Config holds the operator configuration
 type Config struct {
 	Defaults DefaultsConfig `yaml:"defaults"`
+	Rotation RotationConfig `yaml:"rotation"`
 }
 
 // DefaultsConfig holds the default values for secret generation
@@ -50,6 +55,12 @@ type DefaultsConfig struct {
 	String StringOptions `yaml:"string"`
 }
 
+// RotationConfig holds the configuration for secret rotation
+type RotationConfig struct {
+	MinInterval  Duration `yaml:"minInterval"`
+	CreateEvents bool     `yaml:"createEvents"`
+}
+
 // StringOptions holds the character set options for string generation
 type StringOptions struct {
 	Uppercase           bool   `yaml:"uppercase"`
@@ -57,6 +68,56 @@ type StringOptions struct {
 	Numbers             bool   `yaml:"numbers"`
 	SpecialChars        bool   `yaml:"specialChars"`
 	AllowedSpecialChars string `yaml:"allowedSpecialChars"`
+}
+
+// Duration is a wrapper around time.Duration that supports YAML unmarshaling
+type Duration time.Duration
+
+// UnmarshalYAML implements yaml.Unmarshaler for Duration
+func (d *Duration) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	var s string
+	if err := unmarshal(&s); err != nil {
+		return err
+	}
+
+	duration, err := ParseDuration(s)
+	if err != nil {
+		return err
+	}
+
+	*d = Duration(duration)
+	return nil
+}
+
+// MarshalYAML implements yaml.Marshaler for Duration
+func (d Duration) MarshalYAML() (interface{}, error) {
+	return time.Duration(d).String(), nil
+}
+
+// Duration returns the time.Duration value
+func (d Duration) Duration() time.Duration {
+	return time.Duration(d)
+}
+
+// ParseDuration parses a duration string with support for day suffix (d)
+func ParseDuration(s string) (time.Duration, error) {
+	if s == "" {
+		return 0, nil
+	}
+
+	// Handle day suffix by converting to hours
+	// e.g., "7d" -> "168h"
+	if len(s) > 1 && s[len(s)-1] == 'd' {
+		// Parse the number of days
+		daysStr := s[:len(s)-1]
+		var days float64
+		if _, err := fmt.Sscanf(daysStr, "%f", &days); err != nil {
+			return 0, fmt.Errorf("invalid duration: %s", s)
+		}
+		return time.Duration(days * 24 * float64(time.Hour)), nil
+	}
+
+	return time.ParseDuration(s)
 }
 
 // NewDefaultConfig creates a Config with default values
@@ -72,6 +133,10 @@ func NewDefaultConfig() *Config {
 				SpecialChars:        false,
 				AllowedSpecialChars: DefaultAllowedSpecialChars,
 			},
+		},
+		Rotation: RotationConfig{
+			MinInterval:  Duration(DefaultRotationMinInterval),
+			CreateEvents: false,
 		},
 	}
 }
@@ -108,6 +173,10 @@ func LoadConfig(path string) (*Config, error) {
 	if config.Defaults.String.AllowedSpecialChars == "" {
 		config.Defaults.String.AllowedSpecialChars = DefaultAllowedSpecialChars
 	}
+	// Apply defaults for rotation config
+	if config.Rotation.MinInterval == 0 {
+		config.Rotation.MinInterval = Duration(DefaultRotationMinInterval)
+	}
 
 	// Validate the configuration
 	if err := config.Validate(); err != nil {
@@ -141,6 +210,11 @@ func (c *Config) Validate() error {
 	// Validate that if specialChars is enabled, allowedSpecialChars is not empty
 	if c.Defaults.String.SpecialChars && c.Defaults.String.AllowedSpecialChars == "" {
 		return fmt.Errorf("allowedSpecialChars must not be empty when specialChars is enabled")
+	}
+
+	// Validate rotation minInterval
+	if c.Rotation.MinInterval.Duration() < 0 {
+		return fmt.Errorf("rotation minInterval must be non-negative, got %s", c.Rotation.MinInterval.Duration())
 	}
 
 	return nil

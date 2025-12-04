@@ -10,6 +10,7 @@ A Kubernetes operator that automatically generates random secret values. Use it 
 ## Features
 
 - 🔐 **Automatic Secret Generation** - Automatically generates cryptographically secure random values for Kubernetes Secrets
+- 🔄 **Automatic Secret Rotation** - Periodically rotate secrets based on configurable time intervals
 - 🎯 **Annotation-Based** - Simple annotation-based configuration, no CRDs required
 - 📏 **Configurable Length** - Customize the length of generated secrets per field
 - 🔢 **Multiple Types** - Support for `string` and `bytes` generation
@@ -77,6 +78,8 @@ All annotations use the prefix `iso.gtrfc.com/`.
 | `length` | Default length for all fields | `32` |
 | `type.<field>` | Type for a specific field (overrides `type`) | - |
 | `length.<field>` | Length for a specific field (overrides `length`) | - |
+| `rotate` | Default rotation interval for all fields | - |
+| `rotate.<field>` | Rotation interval for a specific field (overrides `rotate`) | - |
 | `generated-at` | Timestamp when values were generated (set by operator) | - |
 
 ### Generation Types
@@ -154,6 +157,175 @@ Result:
 - `encryption-key`: 32 random bytes (Base64-encoded)
 - `username`: preserved as-is
 
+## Automatic Secret Rotation
+
+The operator can automatically rotate (regenerate) secrets at regular intervals. This is useful for:
+
+- **Security compliance** - Regular credential rotation as required by security policies
+- **Reducing blast radius** - Limiting the time window a compromised credential can be used
+- **Automated credential management** - No manual intervention needed for rotation
+
+### How Rotation Works
+
+1. When a Secret is created, the operator generates values and records the timestamp in `generated-at`
+2. The operator calculates when the next rotation is due based on the `rotate` annotation
+3. When the rotation interval expires, all fields with rotation enabled are regenerated
+4. The `generated-at` timestamp is updated to the current time
+5. The cycle repeats automatically
+
+> **Important:** Rotation **overwrites existing values**. This is different from initial generation, which only fills empty fields.
+
+### Duration Format
+
+The `rotate` annotation accepts durations in Go format:
+
+| Unit | Suffix | Example |
+|------|--------|---------|
+| Seconds | `s` | `30s` |
+| Minutes | `m` | `15m` |
+| Hours | `h` | `24h` |
+| Days | `d` | `7d` |
+
+You can combine units: `1h30m` (1 hour and 30 minutes), `7d12h` (7 days and 12 hours)
+
+### Basic Rotation Example
+
+Rotate password every 24 hours:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rotating-secret
+  annotations:
+    iso.gtrfc.com/autogenerate: password
+    iso.gtrfc.com/rotate: "24h"
+type: Opaque
+```
+
+### Per-Field Rotation Intervals
+
+Different fields can have different rotation schedules:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: multi-rotation-secret
+  annotations:
+    iso.gtrfc.com/autogenerate: password,api-key,encryption-key
+    iso.gtrfc.com/rotate: "24h"              # Default: rotate daily
+    iso.gtrfc.com/rotate.password: "7d"      # Override: rotate weekly
+    iso.gtrfc.com/rotate.api-key: "30d"      # Override: rotate monthly
+    # encryption-key uses default (24h)
+type: Opaque
+```
+
+Result:
+- `password`: Rotates every 7 days
+- `api-key`: Rotates every 30 days
+- `encryption-key`: Rotates every 24 hours (default)
+
+### Selective Rotation
+
+Only rotate specific fields, while others remain static:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: selective-rotation-secret
+  annotations:
+    iso.gtrfc.com/autogenerate: password,api-key
+    iso.gtrfc.com/rotate.password: "7d"
+    # api-key has no rotate annotation → never auto-rotated
+type: Opaque
+```
+
+Result:
+- `password`: Rotates every 7 days
+- `api-key`: Generated once, never automatically rotated
+
+### Rotation Events
+
+When `rotation.createEvents` is enabled in the configuration, the operator creates Kubernetes Events when secrets are rotated:
+
+```bash
+kubectl describe secret rotating-secret
+```
+
+```
+Events:
+  Type    Reason          Age   From                        Message
+  ----    ------          ----  ----                        -------
+  Normal  SecretRotated   5s    internal-secrets-operator   Rotated 1 field(s): password
+```
+
+### Minimum Rotation Interval
+
+To prevent accidental tight rotation loops (which could cause excessive API load), the operator enforces a minimum rotation interval. By default, this is **5 minutes**.
+
+If you specify a rotation interval below `minInterval`, the operator:
+1. Creates a **Warning Event** on the Secret
+2. Uses `minInterval` as the actual rotation interval
+
+```yaml
+# This will trigger a warning and use minInterval (5m) instead
+annotations:
+  iso.gtrfc.com/rotate: "30s"  # Too short!
+```
+
+### Rotation Configuration
+
+Configure rotation behavior via Helm values:
+
+```yaml
+config:
+  rotation:
+    # Minimum allowed rotation interval (prevents tight loops)
+    minInterval: 5m
+
+    # Create Normal Events when secrets are rotated
+    # Useful for auditing, but may create many events with frequent rotations
+    createEvents: false
+```
+
+Or via command line:
+
+```bash
+helm install internal-secrets-operator internal-secrets-operator/internal-secrets-operator \
+  --set config.rotation.minInterval=10m \
+  --set config.rotation.createEvents=true
+```
+
+### Application Considerations
+
+When using automatic rotation, ensure your applications can handle credential changes:
+
+1. **Reload on change** - Use tools like [Reloader](https://github.com/stakater/Reloader) to restart pods when secrets change
+2. **Watch for changes** - Applications can watch the Secret and reload credentials dynamically
+3. **Graceful handling** - Implement retry logic for authentication failures during rotation windows
+4. **Coordinate rotation** - Consider rotation timing to minimize disruption (e.g., during low-traffic periods)
+
+#### Example: Using Reloader
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+  annotations:
+    reloader.stakater.com/auto: "true"  # Restart when any mounted secret changes
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          envFrom:
+            - secretRef:
+                name: rotating-secret
+```
+
 ## Regenerating Secrets
 
 The operator respects existing values and will **not** overwrite them. To regenerate a secret value, you have two options:
@@ -206,6 +378,12 @@ config:
       specialChars: false
       # Which special characters to use (when specialChars is true)
       allowedSpecialChars: "!@#$%^&*()_+-=[]{}|;:,.<>?"
+
+  rotation:
+    # Minimum allowed rotation interval (prevents accidental tight loops)
+    minInterval: 5m
+    # Create Normal Events when secrets are rotated
+    createEvents: false
 ```
 
 ### Example: Enable Special Characters by Default
@@ -263,6 +441,15 @@ defaults:
 
     # Which special characters to use (when specialChars is true)
     allowedSpecialChars: "!@#$%^&*()_+-=[]{}|;:,.<>?"
+
+rotation:
+  # Minimum allowed rotation interval
+  # Prevents accidental tight rotation loops that could overload the API server
+  minInterval: 5m
+
+  # Create Normal Events when secrets are rotated
+  # Useful for auditing, but may create many events with frequent rotations
+  createEvents: false
 ```
 
 ### Configuration Reference
@@ -276,6 +463,8 @@ defaults:
 | `defaults.string.numbers` | boolean | `true` | Include numbers (0-9) in generated strings |
 | `defaults.string.specialChars` | boolean | `false` | Include special characters in generated strings |
 | `defaults.string.allowedSpecialChars` | string | `!@#$%^&*()_+-=[]{}|;:,.<>?` | Which special characters to use when `specialChars` is enabled |
+| `rotation.minInterval` | duration | `5m` | Minimum allowed rotation interval. Rotation intervals below this value trigger a warning and use `minInterval` instead |
+| `rotation.createEvents` | boolean | `false` | Create Normal Events when secrets are rotated. Useful for auditing |
 
 ### Validation Rules
 
@@ -332,6 +521,24 @@ defaults:
   length: 32
 ```
 
+#### Weekly Rotation with Events
+
+```yaml
+defaults:
+  type: string
+  length: 32
+  string:
+    uppercase: true
+    lowercase: true
+    numbers: true
+    specialChars: true
+    allowedSpecialChars: "!@#$%&*"
+
+rotation:
+  minInterval: 1h       # Allow rotations as frequent as hourly
+  createEvents: true    # Log rotation events for auditing
+```
+
 ### Manual Deployment
 
 If you're deploying the operator without Helm, create the configuration file manually:
@@ -351,6 +558,10 @@ defaults:
     numbers: true
     specialChars: false
     allowedSpecialChars: "!@#$%^&*()_+-=[]{}|;:,.<>?"
+
+rotation:
+  minInterval: 5m
+  createEvents: false
 EOF
 ```
 

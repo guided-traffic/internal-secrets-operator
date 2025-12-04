@@ -57,9 +57,17 @@ const (
 	// AnnotationGeneratedAt indicates when the value was generated
 	AnnotationGeneratedAt = AnnotationPrefix + "generated-at"
 
+	// AnnotationRotate specifies the default rotation interval for all fields
+	AnnotationRotate = AnnotationPrefix + "rotate"
+
+	// AnnotationRotatePrefix is the prefix for field-specific rotation annotations (rotate.<field>)
+	AnnotationRotatePrefix = AnnotationPrefix + "rotate."
+
 	// Event reasons
 	EventReasonGenerationFailed    = "GenerationFailed"
 	EventReasonGenerationSucceeded = "GenerationSucceeded"
+	EventReasonRotationSucceeded   = "RotationSucceeded"
+	EventReasonRotationFailed      = "RotationFailed"
 )
 
 // SecretReconciler reconciles a Secret object
@@ -69,6 +77,36 @@ type SecretReconciler struct {
 	Generator     generator.Generator
 	Config        *config.Config
 	EventRecorder record.EventRecorder
+	// Clock is used to get the current time. If nil, time.Now() is used.
+	// This allows for time mocking in tests.
+	Clock Clock
+}
+
+// Clock is an interface for getting the current time.
+// This allows for time mocking in tests.
+type Clock interface {
+	Now() time.Time
+}
+
+// RealClock implements Clock using the real time.
+type RealClock struct{}
+
+// Now returns the current time.
+func (RealClock) Now() time.Time {
+	return time.Now()
+}
+
+// now returns the current time using the Clock if set, otherwise time.Now()
+func (r *SecretReconciler) now() time.Time {
+	if r.Clock != nil {
+		return r.Clock.Now()
+	}
+	return time.Now()
+}
+
+// since returns the time elapsed since t using the Clock
+func (r *SecretReconciler) since(t time.Time) time.Duration {
+	return r.now().Sub(t)
 }
 
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;update;patch
@@ -107,11 +145,53 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// Track if any changes were made
 	changed := false
+	rotated := false
+
+	// Get the generated-at timestamp for rotation checks
+	generatedAt := r.getGeneratedAtTime(secret.Annotations)
+
+	// Calculate next requeue time for rotation
+	var nextRotation *time.Duration
 
 	// Generate values for each field
 	for _, field := range fields {
-		// Skip if field already has a value
-		if _, exists := secret.Data[field]; exists {
+		// Get field-specific rotation interval
+		rotationInterval := r.getFieldRotationInterval(secret.Annotations, field)
+
+		// Check if rotation is needed
+		needsRotation := false
+		if rotationInterval > 0 && generatedAt != nil {
+			// Validate rotation interval against minInterval
+			if rotationInterval < r.Config.Rotation.MinInterval.Duration() {
+				errMsg := fmt.Sprintf("Rotation interval %s for field %q is below minimum %s",
+					rotationInterval, field, r.Config.Rotation.MinInterval.Duration())
+				logger.Error(nil, errMsg, "field", field)
+				r.EventRecorder.Event(&secret, corev1.EventTypeWarning, EventReasonRotationFailed, errMsg)
+				// Skip rotation for this field, but continue processing
+				continue
+			}
+
+			timeSinceGeneration := r.since(*generatedAt)
+			if timeSinceGeneration >= rotationInterval {
+				needsRotation = true
+				logger.Info("Field needs rotation", "field", field, "timeSinceGeneration", timeSinceGeneration, "rotationInterval", rotationInterval)
+			} else {
+				// Calculate time until next rotation
+				timeUntilRotation := rotationInterval - timeSinceGeneration
+				if nextRotation == nil || timeUntilRotation < *nextRotation {
+					nextRotation = &timeUntilRotation
+				}
+			}
+		} else if rotationInterval > 0 && generatedAt == nil {
+			// If rotation is configured but no generated-at timestamp exists,
+			// we need to calculate the next rotation based on when we generate now
+			if nextRotation == nil || rotationInterval < *nextRotation {
+				nextRotation = &rotationInterval
+			}
+		}
+
+		// Skip if field already has a value and doesn't need rotation
+		if _, exists := secret.Data[field]; exists && !needsRotation {
 			logger.V(1).Info("Field already has value, skipping", "field", field)
 			continue
 		}
@@ -133,7 +213,12 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		// when storing in etcd and displaying via kubectl
 		secret.Data[field] = []byte(value)
 		changed = true
-		logger.Info("Generated value for field", "field", field, "type", genType, "length", length)
+		if needsRotation {
+			rotated = true
+			logger.Info("Rotated value for field", "field", field, "type", genType, "length", length)
+		} else {
+			logger.Info("Generated value for field", "field", field, "type", genType, "length", length)
+		}
 	}
 
 	// If changes were made, update the secret
@@ -142,7 +227,7 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		if secret.Annotations == nil {
 			secret.Annotations = make(map[string]string)
 		}
-		secret.Annotations[AnnotationGeneratedAt] = time.Now().Format(time.RFC3339)
+		secret.Annotations[AnnotationGeneratedAt] = r.now().Format(time.RFC3339)
 
 		// Update the secret
 		if err := r.Update(ctx, &secret); err != nil {
@@ -151,10 +236,34 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 
 		// Emit success event
-		r.EventRecorder.Event(&secret, corev1.EventTypeNormal, EventReasonGenerationSucceeded,
-			"Successfully generated values for secret fields")
+		if rotated {
+			if r.Config.Rotation.CreateEvents {
+				r.EventRecorder.Event(&secret, corev1.EventTypeNormal, EventReasonRotationSucceeded,
+					"Successfully rotated values for secret fields")
+			}
+			logger.Info("Successfully rotated Secret values")
+		} else {
+			r.EventRecorder.Event(&secret, corev1.EventTypeNormal, EventReasonGenerationSucceeded,
+				"Successfully generated values for secret fields")
+			logger.Info("Successfully updated Secret with generated values")
+		}
 
-		logger.Info("Successfully updated Secret with generated values")
+		// After generating/rotating, recalculate next rotation time
+		// Since we just updated, the next rotation will be the minimum rotation interval
+		for _, field := range fields {
+			rotationInterval := r.getFieldRotationInterval(secret.Annotations, field)
+			if rotationInterval > 0 {
+				if nextRotation == nil || rotationInterval < *nextRotation {
+					nextRotation = &rotationInterval
+				}
+			}
+		}
+	}
+
+	// Return with RequeueAfter if rotation is configured
+	if nextRotation != nil {
+		logger.Info("Scheduling next reconciliation for rotation", "requeueAfter", *nextRotation)
+		return ctrl.Result{RequeueAfter: *nextRotation}, nil
 	}
 
 	return ctrl.Result{}, nil
@@ -214,6 +323,36 @@ func (r *SecretReconciler) getFieldLength(annotations map[string]string, field s
 	}
 	// Fall back to default length annotation
 	return r.getLengthAnnotation(annotations)
+}
+
+// getFieldRotationInterval returns the rotation interval for a specific field.
+// Priority: rotate.<field> annotation > rotate annotation > 0 (no rotation)
+func (r *SecretReconciler) getFieldRotationInterval(annotations map[string]string, field string) time.Duration {
+	// Check for field-specific rotation annotation
+	fieldRotateKey := AnnotationRotatePrefix + field
+	if value, ok := annotations[fieldRotateKey]; ok && value != "" {
+		if duration, err := config.ParseDuration(value); err == nil {
+			return duration
+		}
+	}
+	// Check for default rotation annotation
+	if value, ok := annotations[AnnotationRotate]; ok && value != "" {
+		if duration, err := config.ParseDuration(value); err == nil {
+			return duration
+		}
+	}
+	// No rotation configured
+	return 0
+}
+
+// getGeneratedAtTime parses the generated-at annotation and returns the time
+func (r *SecretReconciler) getGeneratedAtTime(annotations map[string]string) *time.Time {
+	if value, ok := annotations[AnnotationGeneratedAt]; ok && value != "" {
+		if t, err := time.Parse(time.RFC3339, value); err == nil {
+			return &t
+		}
+	}
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager

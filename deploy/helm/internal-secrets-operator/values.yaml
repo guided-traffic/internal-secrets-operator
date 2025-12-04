@@ -38,6 +38,14 @@ config:
       specialChars: false
       # Which special characters to use (when specialChars is true)
       allowedSpecialChars: "!@#$%^&*()_+-=[]{}|;:,.<>?"
+  # Secret rotation configuration
+  rotation:
+    # Minimum allowed rotation interval (prevents accidental tight loops)
+    # Duration format: "5m", "1h", "24h", "7d"
+    minInterval: 5m
+    # Create Normal Events when secrets are rotated
+    # Note: Enabling this can create many Events for frequently rotating secrets
+    createEvents: false
 
 serviceAccount:
   # Specifies whether a service account should be created

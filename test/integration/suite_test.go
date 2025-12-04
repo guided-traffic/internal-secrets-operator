@@ -96,8 +96,33 @@ type testContext struct {
 	cancel context.CancelFunc
 }
 
+// MockClock is a mock implementation of Clock for testing
+type MockClock struct {
+	currentTime time.Time
+}
+
+// Now returns the mocked current time
+func (m *MockClock) Now() time.Time {
+	return m.currentTime
+}
+
+// SetTime sets the mocked current time
+func (m *MockClock) SetTime(t time.Time) {
+	m.currentTime = t
+}
+
+// Advance advances the mocked time by the given duration
+func (m *MockClock) Advance(d time.Duration) {
+	m.currentTime = m.currentTime.Add(d)
+}
+
 // setupTestManager creates a manager with unique controller name for test isolation
 func setupTestManager(t *testing.T, operatorConfig *config.Config) *testContext {
+	return setupTestManagerWithClock(t, operatorConfig, nil)
+}
+
+// setupTestManagerWithClock creates a manager with an optional mock clock
+func setupTestManagerWithClock(t *testing.T, operatorConfig *config.Config, clock controller.Clock) *testContext {
 	t.Helper()
 
 	// Disable metrics server to avoid port conflicts
@@ -131,6 +156,7 @@ func setupTestManager(t *testing.T, operatorConfig *config.Config) *testContext 
 		Generator:     gen,
 		Config:        operatorConfig,
 		EventRecorder: eventRecorder,
+		Clock:         clock,
 	}
 
 	// Use unique controller name using atomic counter

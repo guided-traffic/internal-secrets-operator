@@ -309,19 +309,19 @@ type: Opaque
 
 #### Implementation Tasks
 
-- [ ] Add `rotation` section to config struct in `pkg/config/config.go`
+- [x] Add `rotation` section to config struct in `pkg/config/config.go`
   - `minInterval` (default: `5m`)
   - `createEvents` (default: `false`)
-- [ ] Parse `rotate` and `rotate.<field>` annotations in `secret_controller.go`
-- [ ] Validate rotation duration against `minInterval` (create Warning Event if too short)
-- [ ] Implement rotation logic: compare `generated-at` with current time and rotation interval
-- [ ] Force-regenerate fields when rotation is due (override "existing values are respected" behavior)
-- [ ] Update `generated-at` timestamp after rotation
-- [ ] Implement `RequeueAfter` calculation (minimum of all field rotation times)
-- [ ] Create Normal Event on rotation (if `rotation.createEvents` is enabled)
-- [ ] Add unit tests for rotation logic
-- [ ] Add integration tests for rotation with mocked time
-- [ ] Add e2e tests for rotation feature
-- [ ] Update Helm chart `values.yaml` with `rotation` config section
-- [ ] Update README.md with rotation documentation
-- [ ] Update sample secrets in `config/samples/` with rotation examples
+- [x] Parse `rotate` and `rotate.<field>` annotations in `secret_controller.go`
+- [x] Validate rotation duration against `minInterval` (create Warning Event if too short)
+- [x] Implement rotation logic: compare `generated-at` with current time and rotation interval
+- [x] Force-regenerate fields when rotation is due (override "existing values are respected" behavior)
+- [x] Update `generated-at` timestamp after rotation
+- [x] Implement `RequeueAfter` calculation (minimum of all field rotation times)
+- [x] Create Normal Event on rotation (if `rotation.createEvents` is enabled)
+- [x] Add unit tests for rotation logic
+- [x] Add integration tests for rotation with mocked time
+- [x] Add e2e tests for rotation feature
+- [x] Update Helm chart `values.yaml` with `rotation` config section
+- [x] Update README.md with rotation documentation
+- [x] Update sample secrets in `config/samples/` with rotation examples

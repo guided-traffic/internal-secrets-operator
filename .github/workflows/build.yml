@@ -30,7 +30,6 @@ jobs:
             network=host
 
       - name: Login to Docker Hub
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           username: guidedtraffic
@@ -74,7 +73,7 @@ jobs:
             GIT_COMMIT=${{ github.sha }}
             BUILD_TIME=${{ steps.time.outputs.epoch }}
           platforms: linux/amd64  # ,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.tag_names.outputs.tags }}
           labels: ${{ steps.tag_names.outputs.labels }}
           # cache-from: type=gha
@@ -86,7 +85,6 @@ jobs:
           outputs: type=image,name=target,annotation-index.org.opencontainers.image.description=Internal Secrets Operator
 
       - name: Generate and upload SBOM
-        if: github.event_name != 'pull_request'
         uses: anchore/sbom-action@v0
         with:
           image: guidedtraffic/internal-secrets-operator:${{ github.ref_name }}
@@ -97,16 +95,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload SBOM to release
-        if: github.event_name != 'pull_request' && github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ${{ github.workspace }}/hansfischer-internal-secrets-operator_*.spdx.json
+            ${{ github.workspace }}/guidedtraffic-internal-secrets-operator_*.spdx.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Docker Scout scan
-        if: github.event_name != 'pull_request'
         uses: docker/scout-action@v1
         with:
           command: quickview,cves,recommendations

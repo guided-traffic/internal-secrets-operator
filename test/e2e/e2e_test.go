@@ -36,7 +36,7 @@ import (
 
 const (
 	// AnnotationPrefix is the prefix for all secret operator annotations
-	AnnotationPrefix = "secgen.gtrfc.com/"
+	AnnotationPrefix = "iso.gtrfc.com/"
 
 	// AnnotationAutogenerate specifies which fields to auto-generate
 	AnnotationAutogenerate = AnnotationPrefix + "autogenerate"
@@ -525,9 +525,9 @@ func TestSecretFieldSpecificConfig(t *testing.T) {
 			Name:      "test-field-specific",
 			Namespace: testNamespace,
 			Annotations: map[string]string{
-				AnnotationAutogenerate:              "password,encryption-key",
-				AnnotationType:                      "string",
-				AnnotationLength:                    "24",
+				AnnotationAutogenerate:                    "password,encryption-key",
+				AnnotationType:                            "string",
+				AnnotationLength:                          "24",
 				AnnotationTypePrefix + "encryption-key":   "bytes",
 				AnnotationLengthPrefix + "encryption-key": "32",
 			},

@@ -35,7 +35,7 @@ import (
 
 const (
 	// Annotation constants
-	AnnotationPrefix       = "secgen.gtrfc.com/"
+	AnnotationPrefix       = "iso.gtrfc.com/"
 	AnnotationAutogenerate = AnnotationPrefix + "autogenerate"
 	AnnotationType         = AnnotationPrefix + "type"
 	AnnotationLength       = AnnotationPrefix + "length"

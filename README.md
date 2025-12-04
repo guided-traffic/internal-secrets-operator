@@ -43,7 +43,7 @@ kind: Secret
 metadata:
   name: example-secret
   annotations:
-    secgen.gtrfc.com/autogenerate: password
+    iso.gtrfc.com/autogenerate: password
 data:
   username: c29tZXVzZXI=  # someuser (base64 encoded)
 ```
@@ -56,8 +56,8 @@ kind: Secret
 metadata:
   name: example-secret
   annotations:
-    secgen.gtrfc.com/autogenerate: password
-    secgen.gtrfc.com/generated-at: "2025-12-03T10:00:00+01:00"
+    iso.gtrfc.com/autogenerate: password
+    iso.gtrfc.com/generated-at: "2025-12-03T10:00:00+01:00"
 type: Opaque
 data:
   username: c29tZXVzZXI=
@@ -66,7 +66,7 @@ data:
 
 ## Annotations
 
-All annotations use the prefix `secgen.gtrfc.com/`.
+All annotations use the prefix `iso.gtrfc.com/`.
 
 ### Core Annotations
 
@@ -98,7 +98,7 @@ kind: Secret
 metadata:
   name: multi-field-secret
   annotations:
-    secgen.gtrfc.com/autogenerate: password,api-key,token
+    iso.gtrfc.com/autogenerate: password,api-key,token
 type: Opaque
 ```
 
@@ -110,8 +110,8 @@ kind: Secret
 metadata:
   name: custom-length-secret
   annotations:
-    secgen.gtrfc.com/autogenerate: password
-    secgen.gtrfc.com/length: "64"
+    iso.gtrfc.com/autogenerate: password
+    iso.gtrfc.com/length: "64"
 type: Opaque
 ```
 
@@ -123,9 +123,9 @@ kind: Secret
 metadata:
   name: encryption-secret
   annotations:
-    secgen.gtrfc.com/autogenerate: encryption-key
-    secgen.gtrfc.com/type: bytes
-    secgen.gtrfc.com/length: "32"
+    iso.gtrfc.com/autogenerate: encryption-key
+    iso.gtrfc.com/type: bytes
+    iso.gtrfc.com/length: "32"
 type: Opaque
 ```
 
@@ -139,11 +139,11 @@ kind: Secret
 metadata:
   name: mixed-secret
   annotations:
-    secgen.gtrfc.com/autogenerate: password,encryption-key
-    secgen.gtrfc.com/type: string
-    secgen.gtrfc.com/length: "24"
-    secgen.gtrfc.com/type.encryption-key: bytes
-    secgen.gtrfc.com/length.encryption-key: "32"
+    iso.gtrfc.com/autogenerate: password,encryption-key
+    iso.gtrfc.com/type: string
+    iso.gtrfc.com/length: "24"
+    iso.gtrfc.com/type.encryption-key: bytes
+    iso.gtrfc.com/length.encryption-key: "32"
 type: Opaque
 data:
   username: c29tZXVzZXI=
@@ -290,8 +290,8 @@ The operator validates the configuration at startup and will fail to start if:
 
 Configuration values are applied in the following order (highest priority first):
 
-1. **Per-field annotations** (`secgen.gtrfc.com/type.<field>`, `secgen.gtrfc.com/length.<field>`)
-2. **Secret-level annotations** (`secgen.gtrfc.com/type`, `secgen.gtrfc.com/length`)
+1. **Per-field annotations** (`iso.gtrfc.com/type.<field>`, `iso.gtrfc.com/length.<field>`)
+2. **Secret-level annotations** (`iso.gtrfc.com/type`, `iso.gtrfc.com/length`)
 3. **Configuration file** (`/etc/secret-operator/config.yaml`)
 4. **Built-in defaults** (used if config file doesn't exist)
 

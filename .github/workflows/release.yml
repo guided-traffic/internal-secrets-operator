@@ -311,13 +311,13 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Download unit coverage
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: unit-coverage
           path: coverage/
 
       - name: Download integration coverage
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: integration-coverage
           path: coverage/
@@ -542,7 +542,7 @@ jobs:
         run: npx semantic-release
 
       - name: Download coverage badge
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: combined-coverage
           path: coverage-artifacts/

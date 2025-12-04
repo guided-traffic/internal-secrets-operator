@@ -311,13 +311,13 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Download unit coverage
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: unit-coverage
           path: coverage/
 
       - name: Download integration coverage
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: integration-coverage
           path: coverage/
@@ -367,7 +367,7 @@ jobs:
 
       - name: Add PR comment with coverage
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');
@@ -536,7 +536,7 @@ jobs:
         run: npx semantic-release
 
       - name: Download coverage badge
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: combined-coverage
           path: coverage-artifacts/

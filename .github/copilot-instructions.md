@@ -27,12 +27,14 @@ The operator uses annotations with the prefix `iso.gtrfc.com/`:
 | `length` | Default length for all fields | Integer (default: 32) |
 | `type.<field>` | Type for a specific field (overrides default) | `string`, `bytes` |
 | `length.<field>` | Length for a specific field (overrides default) | Integer |
+| `rotate` | Default rotation interval for all fields | Duration (e.g., `24h`, `7d`) |
+| `rotate.<field>` | Rotation interval for a specific field (overrides default) | Duration |
 | `string.uppercase` | Include uppercase letters (A-Z) | `true` (default), `false` |
 | `string.lowercase` | Include lowercase letters (a-z) | `true` (default), `false` |
 | `string.numbers` | Include numbers (0-9) | `true` (default), `false` |
 | `string.specialChars` | Include special characters | `true`, `false` (default) |
 | `string.allowedSpecialChars` | Which special characters to use | e.g., `!@#$%^&*` |
-| `generated-at` | Timestamp of last patch by operator (set by operator) | ISO 8601 format |
+| `generated-at` | Timestamp of last generation/rotation (set by operator) | ISO 8601 format |
 
 **Priority:** Annotation values override config file defaults.
 
@@ -154,6 +156,10 @@ defaults:
     numbers: true
     specialChars: false
     allowedSpecialChars: "!@#$%^&*()_+-=[]{}|;:,.<>?"
+
+rotation:
+  minInterval: 5m
+  createEvents: false
 ```
 
 **Configuration options:**
@@ -167,6 +173,8 @@ defaults:
 | `defaults.string.numbers` | Include numbers (0-9) | `true` |
 | `defaults.string.specialChars` | Include special characters | `false` |
 | `defaults.string.allowedSpecialChars` | Which special characters to use | `!@#$%^&*()_+-=[]{}|;:,.<>?` |
+| `rotation.minInterval` | Minimum allowed rotation interval | `5m` |
+| `rotation.createEvents` | Create Normal Events when secrets are rotated | `false` |
 
 **Note:** At least one of `uppercase`, `lowercase`, `numbers`, or `specialChars` must be `true`.
 
@@ -186,6 +194,9 @@ config:
       numbers: true
       specialChars: false
       allowedSpecialChars: "!@#$%^&*()_+-=[]{}|;:,.<>?"
+  rotation:
+    minInterval: 5m
+    createEvents: false
 ```
 
 ## Coding Guidelines
@@ -245,46 +256,72 @@ internal-secrets-operator/
 
 ## TODO
 
-### Code Changes Required
+### Per-Secret Charset Annotations
 
-- [x] Update annotation prefix from `secgen.gtrfc.com/` to `iso.gtrfc.com/`
-- [x] Remove `regenerate` annotation support
-- [x] Remove `uuid` and `hex` generation types
-- [x] Rename `base64` type to `bytes`
-- [x] Remove `secure` annotation (operator is always secure by design)
-- [x] Implement field-specific type/length configuration (`type.<field>`, `length.<field>`)
-- [x] Simplify operator-set annotations to only `generated-at`
-- [x] Implement configuration file loading at startup
-- [x] Add configurable charset for `string` type (uppercase, lowercase, numbers, specialChars, allowedSpecialChars)
-- [x] Add validation: at least one charset option must be enabled
-- [x] Implement Warning Events on Secrets when errors occur
-- [ ] Implement per-Secret charset annotations (`string.uppercase`, `string.lowercase`, `string.numbers`, `string.specialChars`, `string.allowedSpecialChars`) in secret_controller.go
+- [ ] Implement per-Secret charset annotations (`string.uppercase`, `string.lowercase`, `string.numbers`, `string.specialChars`, `string.allowedSpecialChars`) in `secret_controller.go`
+- [ ] Add e2e tests for per-Secret charset annotations
 
-### Helm Chart
+### Periodic Secret Rotation
 
-- [x] Add `config` section to `values.yaml` with all configuration options
-- [x] Create ConfigMap template for operator configuration
-- [x] Mount ConfigMap as config file in deployment
-- [x] Add `rbac.clusterRoleBinding.enabled` option (default: true)
-- [x] Document how to set up RoleBindings for restricted namespace access
+Implement automatic secret regeneration based on a configurable time interval. This allows secrets to be rotated periodically without manual intervention.
 
-### Testing
+#### Annotation Schema
 
-- [x] Update unit tests for new annotation schema
-- [x] Update integration tests (envtest-based)
-- [x] Update e2e tests
-- [x] Add tests for configuration file loading
-- [x] Add tests for charset configuration
-- [ ] Add e2e tests for per-Secret charset annotations (after feature is implemented)
+| Annotation | Description | Example |
+|------------|-------------|---------|
+| `iso.gtrfc.com/rotate` | Default rotation interval for all fields | `24h`, `7d`, `1h30m` |
+| `iso.gtrfc.com/rotate.<field>` | Rotation interval for a specific field (overrides default) | `rotate.password: "7d"` |
 
-### CI/CD
+**Duration Format:** Go duration format (e.g., `5m`, `1h`, `24h`, `7d` where `d` = 24h)
 
-- [x] Integrate integration tests (envtest) into CI pipeline
-- [x] Generate combined line coverage report (unit tests + integration tests)
+#### Behavior
 
-### Documentation
+1. **Rotation Trigger:** When `time.Now() - generated-at >= rotate duration`, all fields listed in `autogenerate` are regenerated (existing values are overwritten)
+2. **Timestamp Update:** After rotation, `generated-at` is updated to the current time
+3. **Per-Field Rotation:** If `rotate.<field>` is set, only that field uses the specified interval. Fields without a specific rotation interval use the default `rotate` value
+4. **Fields without rotation:** If no `rotate` annotation exists (neither global nor per-field), the field is never automatically rotated (current behavior)
+5. **RequeueAfter:** After reconciliation, the controller returns `RequeueAfter` with the remaining time until the next rotation. This ensures the Secret is automatically re-reconciled at the right time without polling
 
-- [x] Update README.md with new annotation schema
-- [x] Update sample secrets in `config/samples/`
-- [x] Update Helm chart values documentation
-- [x] Document configuration file options
+#### Configuration Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `rotation.minInterval` | Minimum allowed rotation interval (prevents accidental tight loops) | `5m` |
+| `rotation.createEvents` | Create Normal Events when secrets are rotated | `false` |
+
+**Note for `rotation.createEvents`:** Enabling this can be useful for auditing, but be aware that frequent rotations will create many Events. This can increase load on the Kubernetes API server and make the Secret object harder to read in `kubectl describe` due to the long event list.
+
+#### Example
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rotating-secret
+  annotations:
+    iso.gtrfc.com/autogenerate: password,api-key,encryption-key
+    iso.gtrfc.com/rotate: "24h"
+    iso.gtrfc.com/rotate.password: "7d"
+    iso.gtrfc.com/rotate.api-key: "30d"
+    # encryption-key uses default 24h rotation
+type: Opaque
+```
+
+#### Implementation Tasks
+
+- [ ] Add `rotation` section to config struct in `pkg/config/config.go`
+  - `minInterval` (default: `5m`)
+  - `createEvents` (default: `false`)
+- [ ] Parse `rotate` and `rotate.<field>` annotations in `secret_controller.go`
+- [ ] Validate rotation duration against `minInterval` (create Warning Event if too short)
+- [ ] Implement rotation logic: compare `generated-at` with current time and rotation interval
+- [ ] Force-regenerate fields when rotation is due (override "existing values are respected" behavior)
+- [ ] Update `generated-at` timestamp after rotation
+- [ ] Implement `RequeueAfter` calculation (minimum of all field rotation times)
+- [ ] Create Normal Event on rotation (if `rotation.createEvents` is enabled)
+- [ ] Add unit tests for rotation logic
+- [ ] Add integration tests for rotation with mocked time
+- [ ] Add e2e tests for rotation feature
+- [ ] Update Helm chart `values.yaml` with `rotation` config section
+- [ ] Update README.md with rotation documentation
+- [ ] Update sample secrets in `config/samples/` with rotation examples

@@ -64,6 +64,21 @@ const (
 	// AnnotationRotatePrefix is the prefix for field-specific rotation annotations (rotate.<field>)
 	AnnotationRotatePrefix = AnnotationPrefix + "rotate."
 
+	// AnnotationStringUppercase specifies whether to include uppercase letters
+	AnnotationStringUppercase = AnnotationPrefix + "string.uppercase"
+
+	// AnnotationStringLowercase specifies whether to include lowercase letters
+	AnnotationStringLowercase = AnnotationPrefix + "string.lowercase"
+
+	// AnnotationStringNumbers specifies whether to include numbers
+	AnnotationStringNumbers = AnnotationPrefix + "string.numbers"
+
+	// AnnotationStringSpecialChars specifies whether to include special characters
+	AnnotationStringSpecialChars = AnnotationPrefix + "string.specialChars"
+
+	// AnnotationStringAllowedSpecialChars specifies which special characters to use
+	AnnotationStringAllowedSpecialChars = AnnotationPrefix + "string.allowedSpecialChars"
+
 	// Event reasons
 	EventReasonGenerationFailed    = "GenerationFailed"
 	EventReasonGenerationSucceeded = "GenerationSucceeded"
@@ -143,7 +158,10 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// Process all fields
 	updateResult := r.processSecretFields(&secret, fields, generatedAt, logger)
 	if updateResult.skipRest {
-		return ctrl.Result{}, updateResult.err
+		// An error occurred during field processing. The error has already been logged
+		// and a Warning event has been created. We don't modify the secret and don't
+		// return an error (which would cause unnecessary retries).
+		return ctrl.Result{}, nil
 	}
 
 	// If changes were made, update the secret
@@ -248,6 +266,83 @@ func (r *SecretReconciler) getGeneratedAtTime(annotations map[string]string) *ti
 		}
 	}
 	return nil
+}
+
+// parseBoolAnnotation parses a boolean annotation value.
+// Returns the parsed value and true if the annotation exists and is valid.
+// Valid values are "true", "false", "1", "0" (case-insensitive).
+func parseBoolAnnotation(annotations map[string]string, key string) (bool, bool) {
+	value, ok := annotations[key]
+	if !ok {
+		return false, false
+	}
+	value = strings.ToLower(strings.TrimSpace(value))
+	switch value {
+	case "true", "1":
+		return true, true
+	case "false", "0":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+// getCharsetFromAnnotations builds a charset based on annotations.
+// Priority: annotations > config defaults
+// Returns the charset and an error if the configuration is invalid.
+func (r *SecretReconciler) getCharsetFromAnnotations(annotations map[string]string) (string, error) {
+	// Start with config defaults
+	uppercase := r.Config.Defaults.String.Uppercase
+	lowercase := r.Config.Defaults.String.Lowercase
+	numbers := r.Config.Defaults.String.Numbers
+	specialChars := r.Config.Defaults.String.SpecialChars
+	allowedSpecialChars := r.Config.Defaults.String.AllowedSpecialChars
+
+	// Override with annotations if present
+	if val, ok := parseBoolAnnotation(annotations, AnnotationStringUppercase); ok {
+		uppercase = val
+	}
+	if val, ok := parseBoolAnnotation(annotations, AnnotationStringLowercase); ok {
+		lowercase = val
+	}
+	if val, ok := parseBoolAnnotation(annotations, AnnotationStringNumbers); ok {
+		numbers = val
+	}
+	if val, ok := parseBoolAnnotation(annotations, AnnotationStringSpecialChars); ok {
+		specialChars = val
+	}
+	// Note: We check for the annotation's existence, not just non-empty value
+	// This allows users to explicitly set it to empty if they want to override the config
+	if val, ok := annotations[AnnotationStringAllowedSpecialChars]; ok {
+		allowedSpecialChars = val
+	}
+
+	// Validate that at least one charset option is enabled
+	if !uppercase && !lowercase && !numbers && !specialChars {
+		return "", fmt.Errorf("at least one charset option must be enabled (uppercase, lowercase, numbers, or specialChars)")
+	}
+
+	// Validate that if specialChars is enabled, allowedSpecialChars is not empty
+	if specialChars && allowedSpecialChars == "" {
+		return "", fmt.Errorf("allowedSpecialChars must not be empty when specialChars is enabled")
+	}
+
+	// Build charset string
+	var charset string
+	if lowercase {
+		charset += "abcdefghijklmnopqrstuvwxyz"
+	}
+	if uppercase {
+		charset += "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	}
+	if numbers {
+		charset += "0123456789"
+	}
+	if specialChars {
+		charset += allowedSpecialChars
+	}
+
+	return charset, nil
 }
 
 // secretUpdateResult contains the result of updating a secret
@@ -437,7 +532,26 @@ func (r *SecretReconciler) generateFieldValue(
 	length := r.getFieldLength(secret.Annotations, field)
 
 	// Generate the value
-	value, err := r.Generator.Generate(genType, length)
+	var value string
+	var err error
+
+	// For string type, build charset from annotations
+	if genType == "string" || genType == "" {
+		charset, charsetErr := r.getCharsetFromAnnotations(secret.Annotations)
+		if charsetErr != nil {
+			result.err = fmt.Errorf("invalid charset configuration for field %s: %w", field, charsetErr)
+			result.errMsg = fmt.Sprintf("Invalid charset configuration for field %q: %v", field, charsetErr)
+			result.skipRest = true
+			logger.Error(charsetErr, "Invalid charset configuration", "field", field)
+			r.EventRecorder.Event(secret, corev1.EventTypeWarning, EventReasonGenerationFailed, result.errMsg)
+			return result
+		}
+		value, err = r.Generator.GenerateWithCharset(genType, length, charset)
+	} else {
+		// For bytes type, use default Generate method
+		value, err = r.Generator.Generate(genType, length)
+	}
+
 	if err != nil {
 		result.err = fmt.Errorf("failed to generate value for field %s: %w", field, err)
 		result.errMsg = fmt.Sprintf("Failed to generate value for field %q: %v", field, err)

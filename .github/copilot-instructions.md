@@ -262,5 +262,5 @@ internal-secrets-operator/
 
 ### Per-Secret Charset Annotations
 
-- [ ] Implement per-Secret charset annotations (`string.uppercase`, `string.lowercase`, `string.numbers`, `string.specialChars`, `string.allowedSpecialChars`) in `secret_controller.go`
-- [ ] Add e2e tests for per-Secret charset annotations
+- [X] Implement per-Secret charset annotations (`string.uppercase`, `string.lowercase`, `string.numbers`, `string.specialChars`, `string.allowedSpecialChars`) in `secret_controller.go`
+- [X] Add e2e tests for per-Secret charset annotations

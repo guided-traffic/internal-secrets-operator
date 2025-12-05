@@ -613,8 +613,8 @@ func TestReconcileEmitsWarningEventOnError(t *testing.T) {
 	}
 
 	_, err := reconciler.Reconcile(context.Background(), req)
-	if err == nil {
-		t.Fatal("expected an error for invalid type")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 
 	// Check that a warning event was emitted
@@ -1212,5 +1212,410 @@ func TestReconcileInitialGenerationWithBelowMinInterval(t *testing.T) {
 		}
 	default:
 		t.Error("expected a warning event about rotation interval")
+	}
+}
+
+func TestParseBoolAnnotation(t *testing.T) {
+	tests := []struct {
+		name          string
+		annotations   map[string]string
+		key           string
+		expectedValue bool
+		expectedOk    bool
+	}{
+		{
+			name:          "true lowercase",
+			annotations:   map[string]string{"key": "true"},
+			key:           "key",
+			expectedValue: true,
+			expectedOk:    true,
+		},
+		{
+			name:          "True uppercase",
+			annotations:   map[string]string{"key": "True"},
+			key:           "key",
+			expectedValue: true,
+			expectedOk:    true,
+		},
+		{
+			name:          "TRUE all caps",
+			annotations:   map[string]string{"key": "TRUE"},
+			key:           "key",
+			expectedValue: true,
+			expectedOk:    true,
+		},
+		{
+			name:          "1 as true",
+			annotations:   map[string]string{"key": "1"},
+			key:           "key",
+			expectedValue: true,
+			expectedOk:    true,
+		},
+		{
+			name:          "false lowercase",
+			annotations:   map[string]string{"key": "false"},
+			key:           "key",
+			expectedValue: false,
+			expectedOk:    true,
+		},
+		{
+			name:          "False uppercase",
+			annotations:   map[string]string{"key": "False"},
+			key:           "key",
+			expectedValue: false,
+			expectedOk:    true,
+		},
+		{
+			name:          "0 as false",
+			annotations:   map[string]string{"key": "0"},
+			key:           "key",
+			expectedValue: false,
+			expectedOk:    true,
+		},
+		{
+			name:          "missing key",
+			annotations:   map[string]string{},
+			key:           "key",
+			expectedValue: false,
+			expectedOk:    false,
+		},
+		{
+			name:          "invalid value",
+			annotations:   map[string]string{"key": "invalid"},
+			key:           "key",
+			expectedValue: false,
+			expectedOk:    false,
+		},
+		{
+			name:          "empty value",
+			annotations:   map[string]string{"key": ""},
+			key:           "key",
+			expectedValue: false,
+			expectedOk:    false,
+		},
+		{
+			name:          "whitespace around true",
+			annotations:   map[string]string{"key": "  true  "},
+			key:           "key",
+			expectedValue: true,
+			expectedOk:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			value, ok := parseBoolAnnotation(tt.annotations, tt.key)
+			if value != tt.expectedValue {
+				t.Errorf("expected value %v, got %v", tt.expectedValue, value)
+			}
+			if ok != tt.expectedOk {
+				t.Errorf("expected ok %v, got %v", tt.expectedOk, ok)
+			}
+		})
+	}
+}
+
+func TestGetCharsetFromAnnotations(t *testing.T) {
+	r := &SecretReconciler{
+		Config: config.NewDefaultConfig(),
+	}
+
+	tests := []struct {
+		name          string
+		annotations   map[string]string
+		expectError   bool
+		expectCharset string
+		description   string
+	}{
+		{
+			name:          "use config defaults",
+			annotations:   map[string]string{},
+			expectError:   false,
+			expectCharset: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+			description:   "should use config defaults (uppercase, lowercase, numbers, no special chars)",
+		},
+		{
+			name: "enable special chars",
+			annotations: map[string]string{
+				AnnotationStringSpecialChars:        "true",
+				AnnotationStringAllowedSpecialChars: "!@#$",
+			},
+			expectError:   false,
+			expectCharset: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$",
+			description:   "should include special chars when enabled",
+		},
+		{
+			name: "only lowercase",
+			annotations: map[string]string{
+				AnnotationStringUppercase: "false",
+				AnnotationStringNumbers:   "false",
+			},
+			expectError:   false,
+			expectCharset: "abcdefghijklmnopqrstuvwxyz",
+			description:   "should only include lowercase",
+		},
+		{
+			name: "only uppercase",
+			annotations: map[string]string{
+				AnnotationStringLowercase: "false",
+				AnnotationStringNumbers:   "false",
+			},
+			expectError:   false,
+			expectCharset: "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+			description:   "should only include uppercase",
+		},
+		{
+			name: "only numbers",
+			annotations: map[string]string{
+				AnnotationStringUppercase: "false",
+				AnnotationStringLowercase: "false",
+			},
+			expectError:   false,
+			expectCharset: "0123456789",
+			description:   "should only include numbers",
+		},
+		{
+			name: "custom special chars",
+			annotations: map[string]string{
+				AnnotationStringSpecialChars:        "true",
+				AnnotationStringAllowedSpecialChars: "!@#",
+			},
+			expectError:   false,
+			expectCharset: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#",
+			description:   "should use custom special chars",
+		},
+		{
+			name: "no charset enabled",
+			annotations: map[string]string{
+				AnnotationStringUppercase: "false",
+				AnnotationStringLowercase: "false",
+				AnnotationStringNumbers:   "false",
+			},
+			expectError: true,
+			description: "should error when no charset options enabled",
+		},
+		{
+			name: "special chars enabled but empty",
+			annotations: map[string]string{
+				AnnotationStringSpecialChars:        "true",
+				AnnotationStringAllowedSpecialChars: "",
+			},
+			expectError: true,
+			description: "should error when special chars enabled but empty",
+		},
+		{
+			name: "override config with all false except numbers",
+			annotations: map[string]string{
+				AnnotationStringUppercase: "0",
+				AnnotationStringLowercase: "0",
+				AnnotationStringNumbers:   "1",
+			},
+			expectError:   false,
+			expectCharset: "0123456789",
+			description:   "should handle 0/1 as bool values",
+		},
+		{
+			name: "lowercase and special chars only",
+			annotations: map[string]string{
+				AnnotationStringUppercase:           "false",
+				AnnotationStringNumbers:             "false",
+				AnnotationStringSpecialChars:        "true",
+				AnnotationStringAllowedSpecialChars: "_-.",
+			},
+			expectError:   false,
+			expectCharset: "abcdefghijklmnopqrstuvwxyz_-.",
+			description:   "should combine lowercase and special chars",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			charset, err := r.getCharsetFromAnnotations(tt.annotations)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error but got none: %s", tt.description)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v (%s)", err, tt.description)
+				}
+				if charset != tt.expectCharset {
+					t.Errorf("expected charset %q, got %q (%s)", tt.expectCharset, charset, tt.description)
+				}
+			}
+		})
+	}
+}
+
+func TestReconcileWithCustomCharset(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		expectError bool
+		checkValue  func(t *testing.T, value []byte)
+	}{
+		{
+			name: "generate with uppercase only",
+			annotations: map[string]string{
+				AnnotationAutogenerate:    "password",
+				AnnotationStringLowercase: "false",
+				AnnotationStringNumbers:   "false",
+			},
+			expectError: false,
+			checkValue: func(t *testing.T, value []byte) {
+				for _, b := range value {
+					if b < 'A' || b > 'Z' {
+						t.Errorf("expected only uppercase letters, got byte %c", b)
+					}
+				}
+			},
+		},
+		{
+			name: "generate with numbers only",
+			annotations: map[string]string{
+				AnnotationAutogenerate:    "password",
+				AnnotationStringUppercase: "false",
+				AnnotationStringLowercase: "false",
+			},
+			expectError: false,
+			checkValue: func(t *testing.T, value []byte) {
+				for _, b := range value {
+					if b < '0' || b > '9' {
+						t.Errorf("expected only numbers, got byte %c", b)
+					}
+				}
+			},
+		},
+		{
+			name: "generate with special chars",
+			annotations: map[string]string{
+				AnnotationAutogenerate:              "password",
+				AnnotationStringSpecialChars:        "true",
+				AnnotationStringAllowedSpecialChars: "!@#",
+				AnnotationLength:                    "100", // Larger to ensure special chars appear
+			},
+			expectError: false,
+			checkValue: func(t *testing.T, value []byte) {
+				// With 100 chars, at least one should be a special char (statistically)
+				hasSpecial := false
+				for _, b := range value {
+					if b == '!' || b == '@' || b == '#' {
+						hasSpecial = true
+						break
+					}
+				}
+				// Note: This is probabilistic, but with 100 chars it's very unlikely to fail
+				if !hasSpecial {
+					t.Log("Warning: no special chars in generated value (unlikely but possible)")
+				}
+			},
+		},
+		{
+			name: "fail with no charset enabled",
+			annotations: map[string]string{
+				AnnotationAutogenerate:    "password",
+				AnnotationStringUppercase: "false",
+				AnnotationStringLowercase: "false",
+				AnnotationStringNumbers:   "false",
+			},
+			expectError: true,
+		},
+		{
+			name: "fail with special chars but empty allowedSpecialChars",
+			annotations: map[string]string{
+				AnnotationAutogenerate:              "password",
+				AnnotationStringSpecialChars:        "true",
+				AnnotationStringAllowedSpecialChars: "",
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "test-secret",
+					Namespace:   "default",
+					Annotations: tt.annotations,
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(secret).
+				Build()
+
+			gen := generator.NewSecretGenerator()
+			fakeRecorder := record.NewFakeRecorder(10)
+			cfg := config.NewDefaultConfig()
+
+			reconciler := &SecretReconciler{
+				Client:        fakeClient,
+				Scheme:        scheme,
+				Generator:     gen,
+				Config:        cfg,
+				EventRecorder: fakeRecorder,
+			}
+
+			req := ctrl.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      secret.Name,
+					Namespace: secret.Namespace,
+				},
+			}
+
+			_, err := reconciler.Reconcile(context.Background(), req)
+			if err != nil {
+				t.Fatalf("unexpected error from Reconcile: %v", err)
+			}
+
+			// Fetch the updated secret
+			var updatedSecret corev1.Secret
+			err = fakeClient.Get(context.Background(), req.NamespacedName, &updatedSecret)
+			if err != nil {
+				t.Fatalf("failed to get secret: %v", err)
+			}
+
+			if tt.expectError {
+				// Should have a warning event
+				select {
+				case event := <-fakeRecorder.Events:
+					if event[:len(corev1.EventTypeWarning)] != corev1.EventTypeWarning {
+						t.Errorf("expected warning event, got: %s", event)
+					}
+				default:
+					t.Error("expected a warning event")
+				}
+
+				// Should not have generated a value
+				if _, ok := updatedSecret.Data["password"]; ok {
+					t.Error("expected no password to be generated")
+				}
+			} else {
+				// Should have generated a value
+				if value, ok := updatedSecret.Data["password"]; !ok {
+					t.Error("expected password to be generated")
+				} else if tt.checkValue != nil {
+					tt.checkValue(t, value)
+				}
+
+				// Should have a success event
+				select {
+				case event := <-fakeRecorder.Events:
+					expectedPrefix := fmt.Sprintf("%s %s", corev1.EventTypeNormal, EventReasonGenerationSucceeded)
+					if len(event) < len(expectedPrefix) || event[:len(expectedPrefix)] != expectedPrefix {
+						t.Errorf("expected success event, got: %s", event)
+					}
+				default:
+					t.Error("expected a success event")
+				}
+			}
+		})
 	}
 }

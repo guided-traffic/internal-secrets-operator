@@ -62,6 +62,21 @@ const (
 	// AnnotationRotatePrefix is the prefix for field-specific rotation annotations
 	AnnotationRotatePrefix = AnnotationPrefix + "rotate."
 
+	// AnnotationStringUppercase specifies whether to include uppercase letters
+	AnnotationStringUppercase = AnnotationPrefix + "string.uppercase"
+
+	// AnnotationStringLowercase specifies whether to include lowercase letters
+	AnnotationStringLowercase = AnnotationPrefix + "string.lowercase"
+
+	// AnnotationStringNumbers specifies whether to include numbers
+	AnnotationStringNumbers = AnnotationPrefix + "string.numbers"
+
+	// AnnotationStringSpecialChars specifies whether to include special characters
+	AnnotationStringSpecialChars = AnnotationPrefix + "string.specialChars"
+
+	// AnnotationStringAllowedSpecialChars specifies which special characters to use
+	AnnotationStringAllowedSpecialChars = AnnotationPrefix + "string.allowedSpecialChars"
+
 	// testNamespace is the namespace used for E2E tests
 	testNamespace = "default"
 
@@ -86,6 +101,12 @@ var testSecretNames = []string{
 	"test-rotation-basic",
 	"test-rotation-field-specific",
 	"test-rotation-min-interval",
+	"test-charset-uppercase-only",
+	"test-charset-numbers-only",
+	"test-charset-special-chars",
+	"test-charset-custom-special-chars",
+	"test-charset-lowercase-numbers",
+	"test-charset-invalid-empty",
 }
 
 func TestMain(m *testing.M) {
@@ -839,4 +860,410 @@ func TestSecretRotationMinIntervalValidation(t *testing.T) {
 	}
 
 	t.Log("Min interval validation test completed - password was generated despite invalid rotation interval")
+}
+
+func TestSecretCharsetUppercaseOnly(t *testing.T) {
+	defer cleanupSecret(t, "test-charset-uppercase-only")
+
+	ctx := context.Background()
+
+	// Create a secret with uppercase-only charset
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-charset-uppercase-only",
+			Namespace: testNamespace,
+			Annotations: map[string]string{
+				AnnotationAutogenerate:    "token",
+				AnnotationType:            "string",
+				AnnotationLength:          "32",
+				AnnotationStringUppercase: "true",
+				AnnotationStringLowercase: "false",
+				AnnotationStringNumbers:   "false",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{},
+	}
+
+	_, err := clientset.CoreV1().Secrets(testNamespace).Create(ctx, secret, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("Failed to create secret: %v", err)
+	}
+
+	// Wait for the operator to process the secret
+	var processedSecret *corev1.Secret
+	err = wait.PollUntilContextTimeout(ctx, pollInterval, pollTimeout, true, func(ctx context.Context) (bool, error) {
+		s, err := clientset.CoreV1().Secrets(testNamespace).Get(ctx, "test-charset-uppercase-only", metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+
+		if _, ok := s.Data["token"]; ok && s.Annotations[AnnotationGeneratedAt] != "" {
+			processedSecret = s
+			return true, nil
+		}
+		return false, nil
+	})
+
+	if err != nil {
+		t.Fatalf("Timeout waiting for secret to be processed: %v", err)
+	}
+
+	// Verify the token contains only uppercase letters
+	token := string(processedSecret.Data["token"])
+	if len(token) != 32 {
+		t.Errorf("Expected token length 32, got %d", len(token))
+	}
+
+	for i, ch := range token {
+		if ch < 'A' || ch > 'Z' {
+			t.Errorf("Expected only uppercase letters, but found character '%c' at position %d", ch, i)
+		}
+	}
+
+	t.Logf("Successfully generated uppercase-only token: %s...", token[:8])
+}
+
+func TestSecretCharsetNumbersOnly(t *testing.T) {
+	defer cleanupSecret(t, "test-charset-numbers-only")
+
+	ctx := context.Background()
+
+	// Create a secret with numbers-only charset (e.g., for PIN)
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-charset-numbers-only",
+			Namespace: testNamespace,
+			Annotations: map[string]string{
+				AnnotationAutogenerate:    "pin",
+				AnnotationType:            "string",
+				AnnotationLength:          "6",
+				AnnotationStringUppercase: "false",
+				AnnotationStringLowercase: "false",
+				AnnotationStringNumbers:   "true",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{},
+	}
+
+	_, err := clientset.CoreV1().Secrets(testNamespace).Create(ctx, secret, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("Failed to create secret: %v", err)
+	}
+
+	// Wait for the operator to process the secret
+	var processedSecret *corev1.Secret
+	err = wait.PollUntilContextTimeout(ctx, pollInterval, pollTimeout, true, func(ctx context.Context) (bool, error) {
+		s, err := clientset.CoreV1().Secrets(testNamespace).Get(ctx, "test-charset-numbers-only", metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+
+		if _, ok := s.Data["pin"]; ok && s.Annotations[AnnotationGeneratedAt] != "" {
+			processedSecret = s
+			return true, nil
+		}
+		return false, nil
+	})
+
+	if err != nil {
+		t.Fatalf("Timeout waiting for secret to be processed: %v", err)
+	}
+
+	// Verify the PIN contains only numbers
+	pin := string(processedSecret.Data["pin"])
+	if len(pin) != 6 {
+		t.Errorf("Expected PIN length 6, got %d", len(pin))
+	}
+
+	for i, ch := range pin {
+		if ch < '0' || ch > '9' {
+			t.Errorf("Expected only numbers, but found character '%c' at position %d", ch, i)
+		}
+	}
+
+	t.Logf("Successfully generated numbers-only PIN: %s", pin)
+}
+
+func TestSecretCharsetWithSpecialChars(t *testing.T) {
+	defer cleanupSecret(t, "test-charset-special-chars")
+
+	ctx := context.Background()
+
+	// Create a secret with special characters enabled
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-charset-special-chars",
+			Namespace: testNamespace,
+			Annotations: map[string]string{
+				AnnotationAutogenerate:       "password",
+				AnnotationType:               "string",
+				AnnotationLength:             "64", // Larger to ensure special chars appear
+				AnnotationStringUppercase:    "true",
+				AnnotationStringLowercase:    "true",
+				AnnotationStringNumbers:      "true",
+				AnnotationStringSpecialChars: "true",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{},
+	}
+
+	_, err := clientset.CoreV1().Secrets(testNamespace).Create(ctx, secret, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("Failed to create secret: %v", err)
+	}
+
+	// Wait for the operator to process the secret
+	var processedSecret *corev1.Secret
+	err = wait.PollUntilContextTimeout(ctx, pollInterval, pollTimeout, true, func(ctx context.Context) (bool, error) {
+		s, err := clientset.CoreV1().Secrets(testNamespace).Get(ctx, "test-charset-special-chars", metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+
+		if _, ok := s.Data["password"]; ok && s.Annotations[AnnotationGeneratedAt] != "" {
+			processedSecret = s
+			return true, nil
+		}
+		return false, nil
+	})
+
+	if err != nil {
+		t.Fatalf("Timeout waiting for secret to be processed: %v", err)
+	}
+
+	// Verify the password length
+	password := string(processedSecret.Data["password"])
+	if len(password) != 64 {
+		t.Errorf("Expected password length 64, got %d", len(password))
+	}
+
+	// Check that it contains at least one special character
+	// Note: This is probabilistic, but with 64 chars it's very likely
+	hasSpecial := false
+	specialChars := "!@#$%^&*()_+-=[]{}|;:,.<>?"
+	for _, ch := range password {
+		for _, special := range specialChars {
+			if ch == special {
+				hasSpecial = true
+				break
+			}
+		}
+		if hasSpecial {
+			break
+		}
+	}
+
+	if !hasSpecial {
+		t.Log("Warning: No special characters found in password (unlikely but possible)")
+	}
+
+	t.Logf("Successfully generated password with special chars: %s...", password[:16])
+}
+
+func TestSecretCharsetCustomSpecialChars(t *testing.T) {
+	defer cleanupSecret(t, "test-charset-custom-special-chars")
+
+	ctx := context.Background()
+
+	// Create a secret with custom allowed special characters
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-charset-custom-special-chars",
+			Namespace: testNamespace,
+			Annotations: map[string]string{
+				AnnotationAutogenerate:              "password",
+				AnnotationType:                      "string",
+				AnnotationLength:                    "48",
+				AnnotationStringUppercase:           "true",
+				AnnotationStringLowercase:           "true",
+				AnnotationStringNumbers:             "true",
+				AnnotationStringSpecialChars:        "true",
+				AnnotationStringAllowedSpecialChars: "!@#", // Only these three
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{},
+	}
+
+	_, err := clientset.CoreV1().Secrets(testNamespace).Create(ctx, secret, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("Failed to create secret: %v", err)
+	}
+
+	// Wait for the operator to process the secret
+	var processedSecret *corev1.Secret
+	err = wait.PollUntilContextTimeout(ctx, pollInterval, pollTimeout, true, func(ctx context.Context) (bool, error) {
+		s, err := clientset.CoreV1().Secrets(testNamespace).Get(ctx, "test-charset-custom-special-chars", metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+
+		if _, ok := s.Data["password"]; ok && s.Annotations[AnnotationGeneratedAt] != "" {
+			processedSecret = s
+			return true, nil
+		}
+		return false, nil
+	})
+
+	if err != nil {
+		t.Fatalf("Timeout waiting for secret to be processed: %v", err)
+	}
+
+	// Verify the password
+	password := string(processedSecret.Data["password"])
+	if len(password) != 48 {
+		t.Errorf("Expected password length 48, got %d", len(password))
+	}
+
+	// Check that only allowed special characters are used
+	allowedSpecials := "!@#"
+	for i, ch := range password {
+		isAlphanumeric := (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')
+		isAllowedSpecial := false
+		for _, allowed := range allowedSpecials {
+			if ch == allowed {
+				isAllowedSpecial = true
+				break
+			}
+		}
+		if !isAlphanumeric && !isAllowedSpecial {
+			t.Errorf("Found disallowed character '%c' at position %d", ch, i)
+		}
+	}
+
+	t.Logf("Successfully generated password with custom special chars: %s...", password[:16])
+}
+
+func TestSecretCharsetLowercaseAndNumbers(t *testing.T) {
+	defer cleanupSecret(t, "test-charset-lowercase-numbers")
+
+	ctx := context.Background()
+
+	// Create a secret with lowercase letters and numbers only
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-charset-lowercase-numbers",
+			Namespace: testNamespace,
+			Annotations: map[string]string{
+				AnnotationAutogenerate:    "token",
+				AnnotationType:            "string",
+				AnnotationLength:          "24",
+				AnnotationStringUppercase: "false",
+				AnnotationStringLowercase: "true",
+				AnnotationStringNumbers:   "true",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{},
+	}
+
+	_, err := clientset.CoreV1().Secrets(testNamespace).Create(ctx, secret, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("Failed to create secret: %v", err)
+	}
+
+	// Wait for the operator to process the secret
+	var processedSecret *corev1.Secret
+	err = wait.PollUntilContextTimeout(ctx, pollInterval, pollTimeout, true, func(ctx context.Context) (bool, error) {
+		s, err := clientset.CoreV1().Secrets(testNamespace).Get(ctx, "test-charset-lowercase-numbers", metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+
+		if _, ok := s.Data["token"]; ok && s.Annotations[AnnotationGeneratedAt] != "" {
+			processedSecret = s
+			return true, nil
+		}
+		return false, nil
+	})
+
+	if err != nil {
+		t.Fatalf("Timeout waiting for secret to be processed: %v", err)
+	}
+
+	// Verify the token contains only lowercase letters and numbers
+	token := string(processedSecret.Data["token"])
+	if len(token) != 24 {
+		t.Errorf("Expected token length 24, got %d", len(token))
+	}
+
+	for i, ch := range token {
+		isLowercase := ch >= 'a' && ch <= 'z'
+		isNumber := ch >= '0' && ch <= '9'
+		if !isLowercase && !isNumber {
+			t.Errorf("Expected only lowercase letters and numbers, but found character '%c' at position %d", ch, i)
+		}
+	}
+
+	t.Logf("Successfully generated lowercase-numbers token: %s", token)
+}
+
+func TestSecretCharsetInvalidConfiguration(t *testing.T) {
+	defer cleanupSecret(t, "test-charset-invalid-empty")
+
+	ctx := context.Background()
+
+	// Create a secret with invalid charset configuration (all disabled)
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-charset-invalid-empty",
+			Namespace: testNamespace,
+			Annotations: map[string]string{
+				AnnotationAutogenerate:    "password",
+				AnnotationType:            "string",
+				AnnotationLength:          "32",
+				AnnotationStringUppercase: "false",
+				AnnotationStringLowercase: "false",
+				AnnotationStringNumbers:   "false",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{},
+	}
+
+	_, err := clientset.CoreV1().Secrets(testNamespace).Create(ctx, secret, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("Failed to create secret: %v", err)
+	}
+
+	// Wait a bit for the operator to attempt processing
+	time.Sleep(5 * time.Second)
+
+	// Fetch the secret to check it was NOT modified
+	processedSecret, err := clientset.CoreV1().Secrets(testNamespace).Get(ctx, "test-charset-invalid-empty", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Failed to get secret: %v", err)
+	}
+
+	// Verify password was NOT generated
+	if _, ok := processedSecret.Data["password"]; ok {
+		t.Error("Expected password to NOT be generated with invalid charset configuration")
+	}
+
+	// Check for warning event
+	events, err := clientset.CoreV1().Events(testNamespace).List(ctx, metav1.ListOptions{
+		FieldSelector: "involvedObject.name=test-charset-invalid-empty,involvedObject.kind=Secret",
+	})
+	if err != nil {
+		t.Fatalf("Failed to list events: %v", err)
+	}
+
+	// Look for a warning event about invalid charset
+	var foundWarning bool
+	for _, event := range events.Items {
+		if event.Type == "Warning" && event.Reason == "GenerationFailed" {
+			t.Logf("Found warning event: %s - %s", event.Reason, event.Message)
+			foundWarning = true
+			break
+		}
+	}
+
+	if !foundWarning {
+		t.Error("Expected a warning event about invalid charset configuration")
+	}
+
+	t.Log("Invalid charset configuration test passed - operator correctly rejected the configuration")
 }

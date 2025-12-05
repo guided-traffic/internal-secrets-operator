@@ -61,6 +61,11 @@ func TestMain(m *testing.M) {
 		zap.StacktraceLevel(zapcore.PanicLevel),
 	))
 
+	// Set KUBEBUILDER_ASSETS to use local binaries
+	projectRoot := getProjectRoot()
+	kubebuilderAssets := filepath.Join(projectRoot, "bin", "k8s", "1.29.0-darwin-arm64")
+	os.Setenv("KUBEBUILDER_ASSETS", kubebuilderAssets)
+
 	testEnv = &envtest.Environment{
 		ErrorIfCRDPathMissing: false,
 	}
@@ -220,6 +225,67 @@ func createNamespace(t *testing.T, c client.Client) *corev1.Namespace {
 	}
 
 	return ns
+}
+
+// setupTestManagerWithReplicator creates a manager with SecretReplicatorReconciler
+func setupTestManagerWithReplicator(t *testing.T, operatorConfig *config.Config) *testContext {
+	t.Helper()
+
+	// Disable metrics server to avoid port conflicts
+	metricsAddr := "0"
+
+	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
+		Scheme: scheme.Scheme,
+		Metrics: metricsserver.Options{
+			BindAddress: metricsAddr,
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to create manager: %v", err)
+	}
+
+	// Create event recorder
+	eventBroadcaster := record.NewBroadcaster()
+	eventRecorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: "secret-replicator"})
+
+	if operatorConfig == nil {
+		operatorConfig = config.NewDefaultConfig()
+	}
+
+	// Setup SecretReplicatorReconciler
+	replicatorReconciler := &controller.SecretReplicatorReconciler{
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		Config:        operatorConfig,
+		EventRecorder: eventRecorder,
+	}
+
+	// Use unique controller name
+	counter := atomic.AddInt64(&controllerCounter, 1)
+	controllerName := "secret-replicator-" + time.Now().Format("150405") + "-" + string(rune('a'+counter%26))
+
+	err = ctrl.NewControllerManagedBy(mgr).
+		Named(controllerName).
+		For(&corev1.Secret{}).
+		Complete(replicatorReconciler)
+	if err != nil {
+		t.Fatalf("failed to setup replicator controller: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		if err := mgr.Start(ctx); err != nil {
+			t.Logf("manager stopped: %v", err)
+		}
+	}()
+
+	// Wait for manager and cache to be ready
+	time.Sleep(500 * time.Millisecond)
+
+	return &testContext{
+		client: mgr.GetClient(),
+		cancel: cancel,
+	}
 }
 
 // getProjectRoot returns the project root directory

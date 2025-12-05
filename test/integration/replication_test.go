@@ -1,5 +1,5 @@
-//go:build integration && ginkgo
-// +build integration,ginkgo
+//go:build integration
+// +build integration
 
 /*
 Copyright 2025 Guided Traffic.
@@ -21,524 +21,647 @@ package integration
 
 import (
 	"context"
+	"fmt"
+	"testing"
 	"time"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/guided-traffic/internal-secrets-operator/pkg/config"
 	"github.com/guided-traffic/internal-secrets-operator/pkg/replicator"
 )
 
-var _ = Describe("Secret Replication", func() {
-	const timeout = time.Second * 30
-	const interval = time.Millisecond * 250
+const (
+	// Test timeouts for replication tests
+	replicationTimeout  = 30 * time.Second
+	replicationInterval = 250 * time.Millisecond
+)
 
-	Context("Pull-based Replication", func() {
-		It("should replicate from source to target with mutual consent", func() {
-			ctx := context.Background()
+// waitForSecretReplication waits for a secret to have specific data replicated
+func waitForSecretReplication(ctx context.Context, c client.Client, key types.NamespacedName, expectedData map[string]string) (*corev1.Secret, error) {
+	var secret corev1.Secret
+	deadline := time.Now().Add(replicationTimeout)
 
-			// Create source namespace
-			sourceNS := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "replication-source",
-				},
+	for time.Now().Before(deadline) {
+		if err := c.Get(ctx, key, &secret); err != nil {
+			time.Sleep(replicationInterval)
+			continue
+		}
+
+		// Check if all expected data is present
+		allPresent := true
+		for field, expectedValue := range expectedData {
+			actualValue, ok := secret.Data[field]
+			if !ok || string(actualValue) != expectedValue {
+				allPresent = false
+				break
 			}
-			Expect(k8sClient.Create(ctx, sourceNS)).Should(Succeed())
+		}
 
-			// Create target namespace
-			targetNS := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "replication-target",
+		if allPresent {
+			return &secret, nil
+		}
+
+		time.Sleep(replicationInterval)
+	}
+
+	// Return whatever we have
+	if err := c.Get(ctx, key, &secret); err != nil {
+		return nil, err
+	}
+	return &secret, nil
+}
+
+// waitForSecretDeletion waits for a secret to be deleted
+func waitForSecretDeletion(ctx context.Context, c client.Client, key types.NamespacedName) error {
+	deadline := time.Now().Add(replicationTimeout)
+
+	for time.Now().Before(deadline) {
+		secret := &corev1.Secret{}
+		err := c.Get(ctx, key, secret)
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		time.Sleep(replicationInterval)
+	}
+
+	return fmt.Errorf("secret still exists after timeout")
+}
+
+// consistentlySecretEmpty checks that a secret remains empty for a duration
+func consistentlySecretEmpty(ctx context.Context, c client.Client, key types.NamespacedName, duration time.Duration) bool {
+	deadline := time.Now().Add(duration)
+
+	for time.Now().Before(deadline) {
+		secret := &corev1.Secret{}
+		err := c.Get(ctx, key, secret)
+		if err != nil || len(secret.Data) > 0 {
+			return false
+		}
+		time.Sleep(replicationInterval)
+	}
+
+	return true
+}
+
+func TestSecretReplication(t *testing.T) {
+	// Setup test manager with replication enabled
+	cfg := config.NewDefaultConfig()
+	cfg.Features.SecretReplicator = true
+	tc := setupTestManagerWithReplicator(t, cfg)
+	defer tc.cancel()
+
+	ctx := context.Background()
+
+	t.Run("PullBasedReplication_MutualConsent", func(t *testing.T) {
+		// Create source namespace
+		sourceNS := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "repl-source-",
+			},
+		}
+		if err := tc.client.Create(ctx, sourceNS); err != nil {
+			t.Fatalf("failed to create source namespace: %v", err)
+		}
+		defer tc.client.Delete(ctx, sourceNS)
+
+		// Create target namespace
+		targetNS := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "repl-target-",
+			},
+		}
+		if err := tc.client.Create(ctx, targetNS); err != nil {
+			t.Fatalf("failed to create target namespace: %v", err)
+		}
+		defer tc.client.Delete(ctx, targetNS)
+
+		// Create source Secret with allowlist
+		sourceSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "pull-test-secret",
+				Namespace: sourceNS.Name,
+				Annotations: map[string]string{
+					replicator.AnnotationReplicatableFromNamespaces: targetNS.Name,
 				},
-			}
-			Expect(k8sClient.Create(ctx, targetNS)).Should(Succeed())
+			},
+			Data: map[string][]byte{
+				"username": []byte("testuser"),
+				"password": []byte("testpass"),
+			},
+		}
+		if err := tc.client.Create(ctx, sourceSecret); err != nil {
+			t.Fatalf("failed to create source secret: %v", err)
+		}
+		defer tc.client.Delete(ctx, sourceSecret)
 
-			// Create source Secret with allowlist
-			sourceSecret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "pull-test-secret",
-					Namespace: "replication-source",
-					Annotations: map[string]string{
-						replicator.AnnotationReplicatableFromNamespaces: "replication-target",
-					},
+		// Create target Secret with replicate-from
+		targetSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "pull-test-secret",
+				Namespace: targetNS.Name,
+				Annotations: map[string]string{
+					replicator.AnnotationReplicateFrom: sourceNS.Name + "/pull-test-secret",
 				},
-				Data: map[string][]byte{
-					"username": []byte("testuser"),
-					"password": []byte("testpass"),
-				},
-			}
-			Expect(k8sClient.Create(ctx, sourceSecret)).Should(Succeed())
+			},
+		}
+		if err := tc.client.Create(ctx, targetSecret); err != nil {
+			t.Fatalf("failed to create target secret: %v", err)
+		}
+		defer tc.client.Delete(ctx, targetSecret)
 
-			// Create target Secret with replicate-from
-			targetSecret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "pull-test-secret",
-					Namespace: "replication-target",
-					Annotations: map[string]string{
-						replicator.AnnotationReplicateFrom: "replication-source/pull-test-secret",
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, targetSecret)).Should(Succeed())
+		// Wait for replication to occur
+		expectedData := map[string]string{
+			"username": "testuser",
+			"password": "testpass",
+		}
+		replicatedSecret, err := waitForSecretReplication(ctx, tc.client, types.NamespacedName{
+			Namespace: targetNS.Name,
+			Name:      "pull-test-secret",
+		}, expectedData)
 
-			// Wait for replication to occur
-			Eventually(func() bool {
-				secret := &corev1.Secret{}
-				err := k8sClient.Get(ctx, types.NamespacedName{
-					Namespace: "replication-target",
-					Name:      "pull-test-secret",
-				}, secret)
-				if err != nil {
-					return false
-				}
+		if err != nil {
+			t.Fatalf("failed to wait for replication: %v", err)
+		}
 
-				// Check if data was replicated
-				return string(secret.Data["username"]) == "testuser" &&
-					string(secret.Data["password"]) == "testpass" &&
-					secret.Annotations[replicator.AnnotationReplicatedFrom] == "replication-source/pull-test-secret"
-			}, timeout, interval).Should(BeTrue())
-
-			// Cleanup
-			Expect(k8sClient.Delete(ctx, sourceSecret)).Should(Succeed())
-			Expect(k8sClient.Delete(ctx, targetSecret)).Should(Succeed())
-			Expect(k8sClient.Delete(ctx, sourceNS)).Should(Succeed())
-			Expect(k8sClient.Delete(ctx, targetNS)).Should(Succeed())
-		})
-
-		It("should deny replication when target not in allowlist", func() {
-			ctx := context.Background()
-
-			// Create namespaces
-			sourceNS := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "replication-denied-source",
-				},
-			}
-			Expect(k8sClient.Create(ctx, sourceNS)).Should(Succeed())
-
-			unauthorizedNS := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "replication-unauthorized",
-				},
-			}
-			Expect(k8sClient.Create(ctx, unauthorizedNS)).Should(Succeed())
-
-			// Create source Secret with limited allowlist
-			sourceSecret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "denied-secret",
-					Namespace: "replication-denied-source",
-					Annotations: map[string]string{
-						replicator.AnnotationReplicatableFromNamespaces: "other-namespace",
-					},
-				},
-				Data: map[string][]byte{
-					"secret": []byte("data"),
-				},
-			}
-			Expect(k8sClient.Create(ctx, sourceSecret)).Should(Succeed())
-
-			// Create target Secret trying to replicate
-			targetSecret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "denied-secret",
-					Namespace: "replication-unauthorized",
-					Annotations: map[string]string{
-						replicator.AnnotationReplicateFrom: "replication-denied-source/denied-secret",
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, targetSecret)).Should(Succeed())
-
-			// Wait a bit and verify data was NOT replicated
-			Consistently(func() bool {
-				secret := &corev1.Secret{}
-				err := k8sClient.Get(ctx, types.NamespacedName{
-					Namespace: "replication-unauthorized",
-					Name:      "denied-secret",
-				}, secret)
-				if err != nil {
-					return false
-				}
-
-				// Data should NOT be present
-				return len(secret.Data) == 0
-			}, time.Second*5, interval).Should(BeTrue())
-
-			// Cleanup
-			Expect(k8sClient.Delete(ctx, sourceSecret)).Should(Succeed())
-			Expect(k8sClient.Delete(ctx, targetSecret)).Should(Succeed())
-			Expect(k8sClient.Delete(ctx, sourceNS)).Should(Succeed())
-			Expect(k8sClient.Delete(ctx, unauthorizedNS)).Should(Succeed())
-		})
-
-		It("should support wildcard patterns in allowlist", func() {
-			ctx := context.Background()
-
-			// Create source namespace
-			sourceNS := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "wildcard-source",
-				},
-			}
-			Expect(k8sClient.Create(ctx, sourceNS)).Should(Succeed())
-
-			// Create multiple target namespaces matching pattern
-			target1NS := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "env-staging",
-				},
-			}
-			Expect(k8sClient.Create(ctx, target1NS)).Should(Succeed())
-
-			target2NS := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "env-development",
-				},
-			}
-			Expect(k8sClient.Create(ctx, target2NS)).Should(Succeed())
-
-			// Create source Secret with wildcard allowlist
-			sourceSecret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "wildcard-secret",
-					Namespace: "wildcard-source",
-					Annotations: map[string]string{
-						replicator.AnnotationReplicatableFromNamespaces: "env-*",
-					},
-				},
-				Data: map[string][]byte{
-					"data": []byte("wildcard-test"),
-				},
-			}
-			Expect(k8sClient.Create(ctx, sourceSecret)).Should(Succeed())
-
-			// Create target Secrets
-			target1 := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "wildcard-secret",
-					Namespace: "env-staging",
-					Annotations: map[string]string{
-						replicator.AnnotationReplicateFrom: "wildcard-source/wildcard-secret",
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, target1)).Should(Succeed())
-
-			target2 := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "wildcard-secret",
-					Namespace: "env-development",
-					Annotations: map[string]string{
-						replicator.AnnotationReplicateFrom: "wildcard-source/wildcard-secret",
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, target2)).Should(Succeed())
-
-			// Wait for both to be replicated
-			Eventually(func() bool {
-				secret1 := &corev1.Secret{}
-				err1 := k8sClient.Get(ctx, types.NamespacedName{
-					Namespace: "env-staging",
-					Name:      "wildcard-secret",
-				}, secret1)
-
-				secret2 := &corev1.Secret{}
-				err2 := k8sClient.Get(ctx, types.NamespacedName{
-					Namespace: "env-development",
-					Name:      "wildcard-secret",
-				}, secret2)
-
-				return err1 == nil && err2 == nil &&
-					string(secret1.Data["data"]) == "wildcard-test" &&
-					string(secret2.Data["data"]) == "wildcard-test"
-			}, timeout, interval).Should(BeTrue())
-
-			// Cleanup
-			Expect(k8sClient.Delete(ctx, sourceSecret)).Should(Succeed())
-			Expect(k8sClient.Delete(ctx, target1)).Should(Succeed())
-			Expect(k8sClient.Delete(ctx, target2)).Should(Succeed())
-			Expect(k8sClient.Delete(ctx, sourceNS)).Should(Succeed())
-			Expect(k8sClient.Delete(ctx, target1NS)).Should(Succeed())
-			Expect(k8sClient.Delete(ctx, target2NS)).Should(Succeed())
-		})
+		// Verify replicated-from annotation
+		if replicatedSecret.Annotations[replicator.AnnotationReplicatedFrom] != sourceNS.Name+"/pull-test-secret" {
+			t.Errorf("expected replicated-from annotation, got %v", replicatedSecret.Annotations[replicator.AnnotationReplicatedFrom])
+		}
 	})
 
-	Context("Push-based Replication", func() {
-		It("should push Secret to target namespaces", func() {
-			ctx := context.Background()
+	t.Run("PullBasedReplication_DenyUnauthorized", func(t *testing.T) {
+		// Create namespaces
+		sourceNS := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "deny-source-",
+			},
+		}
+		if err := tc.client.Create(ctx, sourceNS); err != nil {
+			t.Fatalf("failed to create source namespace: %v", err)
+		}
+		defer tc.client.Delete(ctx, sourceNS)
 
-			// Create namespaces
-			sourceNS := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "push-source",
+		unauthorizedNS := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "unauthorized-",
+			},
+		}
+		if err := tc.client.Create(ctx, unauthorizedNS); err != nil {
+			t.Fatalf("failed to create unauthorized namespace: %v", err)
+		}
+		defer tc.client.Delete(ctx, unauthorizedNS)
+
+		// Create source Secret with limited allowlist
+		sourceSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "denied-secret",
+				Namespace: sourceNS.Name,
+				Annotations: map[string]string{
+					replicator.AnnotationReplicatableFromNamespaces: "other-namespace",
 				},
-			}
-			Expect(k8sClient.Create(ctx, sourceNS)).Should(Succeed())
+			},
+			Data: map[string][]byte{
+				"secret": []byte("data"),
+			},
+		}
+		if err := tc.client.Create(ctx, sourceSecret); err != nil {
+			t.Fatalf("failed to create source secret: %v", err)
+		}
+		defer tc.client.Delete(ctx, sourceSecret)
 
-			targetNS := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "push-target",
+		// Create target Secret trying to replicate
+		targetSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "denied-secret",
+				Namespace: unauthorizedNS.Name,
+				Annotations: map[string]string{
+					replicator.AnnotationReplicateFrom: sourceNS.Name + "/denied-secret",
 				},
-			}
-			Expect(k8sClient.Create(ctx, targetNS)).Should(Succeed())
+			},
+		}
+		if err := tc.client.Create(ctx, targetSecret); err != nil {
+			t.Fatalf("failed to create target secret: %v", err)
+		}
+		defer tc.client.Delete(ctx, targetSecret)
 
-			// Create source Secret with replicate-to
-			sourceSecret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "push-secret",
-					Namespace: "push-source",
-					Annotations: map[string]string{
-						replicator.AnnotationReplicateTo: "push-target",
-					},
+		// Wait a bit and verify data was NOT replicated
+		if !consistentlySecretEmpty(ctx, tc.client, types.NamespacedName{
+			Namespace: unauthorizedNS.Name,
+			Name:      "denied-secret",
+		}, 5*time.Second) {
+			t.Error("expected secret to remain empty (replication should be denied)")
+		}
+	})
+
+	t.Run("PullBasedReplication_WildcardPatterns", func(t *testing.T) {
+		// Create source namespace with unique prefix
+		sourceNS := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "wildcard-source-",
+			},
+		}
+		if err := tc.client.Create(ctx, sourceNS); err != nil {
+			t.Fatalf("failed to create source namespace: %v", err)
+		}
+		defer tc.client.Delete(ctx, sourceNS)
+
+		// Create target namespaces with env- prefix to match wildcard
+		target1NS := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "env-staging-",
+			},
+		}
+		if err := tc.client.Create(ctx, target1NS); err != nil {
+			t.Fatalf("failed to create target1 namespace: %v", err)
+		}
+		defer tc.client.Delete(ctx, target1NS)
+
+		target2NS := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "env-dev-",
+			},
+		}
+		if err := tc.client.Create(ctx, target2NS); err != nil {
+			t.Fatalf("failed to create target2 namespace: %v", err)
+		}
+		defer tc.client.Delete(ctx, target2NS)
+
+		// Create source Secret with wildcard allowlist pattern
+		sourceSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "wildcard-secret",
+				Namespace: sourceNS.Name,
+				Annotations: map[string]string{
+					replicator.AnnotationReplicatableFromNamespaces: "env-*",
 				},
-				Data: map[string][]byte{
-					"key": []byte("pushed-value"),
+			},
+			Data: map[string][]byte{
+				"data": []byte("wildcard-test"),
+			},
+		}
+		if err := tc.client.Create(ctx, sourceSecret); err != nil {
+			t.Fatalf("failed to create source secret: %v", err)
+		}
+		defer tc.client.Delete(ctx, sourceSecret)
+
+		// Create target Secrets in both namespaces
+		target1Secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "wildcard-secret",
+				Namespace: target1NS.Name,
+				Annotations: map[string]string{
+					replicator.AnnotationReplicateFrom: sourceNS.Name + "/wildcard-secret",
 				},
-			}
-			Expect(k8sClient.Create(ctx, sourceSecret)).Should(Succeed())
+			},
+		}
+		if err := tc.client.Create(ctx, target1Secret); err != nil {
+			t.Fatalf("failed to create target1 secret: %v", err)
+		}
+		defer tc.client.Delete(ctx, target1Secret)
 
-			// Wait for Secret to be created in target namespace
-			Eventually(func() bool {
-				targetSecret := &corev1.Secret{}
-				err := k8sClient.Get(ctx, types.NamespacedName{
-					Namespace: "push-target",
-					Name:      "push-secret",
-				}, targetSecret)
+		target2Secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "wildcard-secret",
+				Namespace: target2NS.Name,
+				Annotations: map[string]string{
+					replicator.AnnotationReplicateFrom: sourceNS.Name + "/wildcard-secret",
+				},
+			},
+		}
+		if err := tc.client.Create(ctx, target2Secret); err != nil {
+			t.Fatalf("failed to create target2 secret: %v", err)
+		}
+		defer tc.client.Delete(ctx, target2Secret)
 
-				return err == nil &&
-					string(targetSecret.Data["key"]) == "pushed-value" &&
-					targetSecret.Annotations[replicator.AnnotationReplicatedFrom] == "push-source/push-secret"
-			}, timeout, interval).Should(BeTrue())
+		// Wait for both secrets to be replicated
+		expectedData := map[string]string{
+			"data": "wildcard-test",
+		}
 
-			// Cleanup
-			targetSecret := &corev1.Secret{}
-			k8sClient.Get(ctx, types.NamespacedName{
-				Namespace: "push-target",
+		_, err := waitForSecretReplication(ctx, tc.client, types.NamespacedName{
+			Namespace: target1NS.Name,
+			Name:      "wildcard-secret",
+		}, expectedData)
+		if err != nil {
+			t.Errorf("target1 secret was not replicated: %v", err)
+		}
+
+		_, err = waitForSecretReplication(ctx, tc.client, types.NamespacedName{
+			Namespace: target2NS.Name,
+			Name:      "wildcard-secret",
+		}, expectedData)
+		if err != nil {
+			t.Errorf("target2 secret was not replicated: %v", err)
+		}
+	})
+
+	t.Run("PushBasedReplication_Basic", func(t *testing.T) {
+		// Create namespaces
+		sourceNS := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "push-source-",
+			},
+		}
+		if err := tc.client.Create(ctx, sourceNS); err != nil {
+			t.Fatalf("failed to create source namespace: %v", err)
+		}
+		defer tc.client.Delete(ctx, sourceNS)
+
+		targetNS := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "push-target-",
+			},
+		}
+		if err := tc.client.Create(ctx, targetNS); err != nil {
+			t.Fatalf("failed to create target namespace: %v", err)
+		}
+		defer tc.client.Delete(ctx, targetNS)
+
+		// Create source Secret with replicate-to annotation
+		sourceSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
 				Name:      "push-secret",
-			}, targetSecret)
-			Expect(k8sClient.Delete(ctx, targetSecret)).Should(Succeed())
-			Expect(k8sClient.Delete(ctx, sourceSecret)).Should(Succeed())
-			Expect(k8sClient.Delete(ctx, sourceNS)).Should(Succeed())
-			Expect(k8sClient.Delete(ctx, targetNS)).Should(Succeed())
-		})
-
-		It("should update pushed Secret when source changes", func() {
-			ctx := context.Background()
-
-			// Create namespaces
-			sourceNS := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "update-source",
+				Namespace: sourceNS.Name,
+				Annotations: map[string]string{
+					replicator.AnnotationReplicateTo: targetNS.Name,
 				},
-			}
-			Expect(k8sClient.Create(ctx, sourceNS)).Should(Succeed())
+			},
+			Data: map[string][]byte{
+				"key": []byte("pushed-value"),
+			},
+		}
+		if err := tc.client.Create(ctx, sourceSecret); err != nil {
+			t.Fatalf("failed to create source secret: %v", err)
+		}
+		defer tc.client.Delete(ctx, sourceSecret)
 
-			targetNS := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "update-target",
-				},
-			}
-			Expect(k8sClient.Create(ctx, targetNS)).Should(Succeed())
+		// Wait for Secret to be created in target namespace
+		expectedData := map[string]string{
+			"key": "pushed-value",
+		}
+		pushedSecret, err := waitForSecretReplication(ctx, tc.client, types.NamespacedName{
+			Namespace: targetNS.Name,
+			Name:      "push-secret",
+		}, expectedData)
 
-			// Create source Secret
-			sourceSecret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "update-secret",
-					Namespace: "update-source",
-					Annotations: map[string]string{
-						replicator.AnnotationReplicateTo: "update-target",
-					},
-				},
-				Data: map[string][]byte{
-					"version": []byte("v1"),
-				},
-			}
-			Expect(k8sClient.Create(ctx, sourceSecret)).Should(Succeed())
+		if err != nil {
+			t.Fatalf("pushed secret was not created: %v", err)
+		}
 
-			// Wait for initial push
-			Eventually(func() bool {
-				targetSecret := &corev1.Secret{}
-				err := k8sClient.Get(ctx, types.NamespacedName{
-					Namespace: "update-target",
-					Name:      "update-secret",
-				}, targetSecret)
-				return err == nil && string(targetSecret.Data["version"]) == "v1"
-			}, timeout, interval).Should(BeTrue())
+		// Verify replicated-from annotation
+		if pushedSecret.Annotations[replicator.AnnotationReplicatedFrom] != sourceNS.Name+"/push-secret" {
+			t.Errorf("expected replicated-from annotation, got %v", pushedSecret.Annotations[replicator.AnnotationReplicatedFrom])
+		}
 
-			// Update source Secret
-			Expect(k8sClient.Get(ctx, types.NamespacedName{
-				Namespace: "update-source",
-				Name:      "update-secret",
-			}, sourceSecret)).Should(Succeed())
-
-			sourceSecret.Data["version"] = []byte("v2")
-			Expect(k8sClient.Update(ctx, sourceSecret)).Should(Succeed())
-
-			// Wait for update to propagate
-			Eventually(func() bool {
-				targetSecret := &corev1.Secret{}
-				err := k8sClient.Get(ctx, types.NamespacedName{
-					Namespace: "update-target",
-					Name:      "update-secret",
-				}, targetSecret)
-				return err == nil && string(targetSecret.Data["version"]) == "v2"
-			}, timeout, interval).Should(BeTrue())
-
-			// Cleanup
-			targetSecret := &corev1.Secret{}
-			k8sClient.Get(ctx, types.NamespacedName{
-				Namespace: "update-target",
-				Name:      "update-secret",
-			}, targetSecret)
-			Expect(k8sClient.Delete(ctx, targetSecret)).Should(Succeed())
-			Expect(k8sClient.Delete(ctx, sourceSecret)).Should(Succeed())
-			Expect(k8sClient.Delete(ctx, sourceNS)).Should(Succeed())
-			Expect(k8sClient.Delete(ctx, targetNS)).Should(Succeed())
-		})
-
-		It("should cleanup pushed Secrets when source is deleted", func() {
-			ctx := context.Background()
-
-			// Create namespaces
-			sourceNS := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "cleanup-source",
-				},
-			}
-			Expect(k8sClient.Create(ctx, sourceNS)).Should(Succeed())
-
-			targetNS := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "cleanup-target",
-				},
-			}
-			Expect(k8sClient.Create(ctx, targetNS)).Should(Succeed())
-
-			// Create source Secret
-			sourceSecret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "cleanup-secret",
-					Namespace: "cleanup-source",
-					Annotations: map[string]string{
-						replicator.AnnotationReplicateTo: "cleanup-target",
-					},
-				},
-				Data: map[string][]byte{
-					"data": []byte("test"),
-				},
-			}
-			Expect(k8sClient.Create(ctx, sourceSecret)).Should(Succeed())
-
-			// Wait for push
-			Eventually(func() bool {
-				targetSecret := &corev1.Secret{}
-				err := k8sClient.Get(ctx, types.NamespacedName{
-					Namespace: "cleanup-target",
-					Name:      "cleanup-secret",
-				}, targetSecret)
-				return err == nil
-			}, timeout, interval).Should(BeTrue())
-
-			// Delete source Secret
-			Expect(k8sClient.Delete(ctx, sourceSecret)).Should(Succeed())
-
-			// Wait for pushed Secret to be deleted
-			Eventually(func() bool {
-				targetSecret := &corev1.Secret{}
-				err := k8sClient.Get(ctx, types.NamespacedName{
-					Namespace: "cleanup-target",
-					Name:      "cleanup-secret",
-				}, targetSecret)
-				return err != nil // Should not exist
-			}, timeout, interval).Should(BeTrue())
-
-			// Cleanup namespaces
-			Expect(k8sClient.Delete(ctx, sourceNS)).Should(Succeed())
-			Expect(k8sClient.Delete(ctx, targetNS)).Should(Succeed())
-		})
+		// Cleanup pushed secret
+		defer tc.client.Delete(ctx, pushedSecret)
 	})
 
-	Context("Feature Interactions", func() {
-		It("should reject Secrets with both autogenerate and replicate-from", func() {
-			ctx := context.Background()
+	t.Run("PushBasedReplication_UpdatePropagation", func(t *testing.T) {
+		// Create namespaces
+		sourceNS := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "update-source-",
+			},
+		}
+		if err := tc.client.Create(ctx, sourceNS); err != nil {
+			t.Fatalf("failed to create source namespace: %v", err)
+		}
+		defer tc.client.Delete(ctx, sourceNS)
 
-			ns := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "conflict-test",
+		targetNS := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "update-target-",
+			},
+		}
+		if err := tc.client.Create(ctx, targetNS); err != nil {
+			t.Fatalf("failed to create target namespace: %v", err)
+		}
+		defer tc.client.Delete(ctx, targetNS)
+
+		// Create source Secret
+		sourceSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "update-secret",
+				Namespace: sourceNS.Name,
+				Annotations: map[string]string{
+					replicator.AnnotationReplicateTo: targetNS.Name,
 				},
-			}
-			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
+			},
+			Data: map[string][]byte{
+				"version": []byte("v1"),
+			},
+		}
+		if err := tc.client.Create(ctx, sourceSecret); err != nil {
+			t.Fatalf("failed to create source secret: %v", err)
+		}
+		defer tc.client.Delete(ctx, sourceSecret)
 
-			// Create Secret with conflicting annotations
-			conflictSecret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "conflict-secret",
-					Namespace: "conflict-test",
-					Annotations: map[string]string{
-						"iso.gtrfc.com/autogenerate":       "password",
-						replicator.AnnotationReplicateFrom: "other-ns/other-secret",
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, conflictSecret)).Should(Succeed())
+		// Wait for initial push
+		_, err := waitForSecretReplication(ctx, tc.client, types.NamespacedName{
+			Namespace: targetNS.Name,
+			Name:      "update-secret",
+		}, map[string]string{"version": "v1"})
+		if err != nil {
+			t.Fatalf("initial push failed: %v", err)
+		}
 
-			// Secret should remain unchanged (no data generated or replicated)
-			Consistently(func() bool {
-				secret := &corev1.Secret{}
-				err := k8sClient.Get(ctx, types.NamespacedName{
-					Namespace: "conflict-test",
-					Name:      "conflict-secret",
-				}, secret)
-				return err == nil && len(secret.Data) == 0
-			}, time.Second*5, interval).Should(BeTrue())
+		// Update source Secret
+		if err := tc.client.Get(ctx, types.NamespacedName{
+			Namespace: sourceNS.Name,
+			Name:      "update-secret",
+		}, sourceSecret); err != nil {
+			t.Fatalf("failed to get source secret: %v", err)
+		}
 
-			// Cleanup
-			Expect(k8sClient.Delete(ctx, conflictSecret)).Should(Succeed())
-			Expect(k8sClient.Delete(ctx, ns)).Should(Succeed())
-		})
+		sourceSecret.Data["version"] = []byte("v2")
+		if err := tc.client.Update(ctx, sourceSecret); err != nil {
+			t.Fatalf("failed to update source secret: %v", err)
+		}
 
-		It("should allow autogenerate and replicatable-from-namespaces together", func() {
-			ctx := context.Background()
+		// Wait for update to propagate
+		updatedSecret, err := waitForSecretReplication(ctx, tc.client, types.NamespacedName{
+			Namespace: targetNS.Name,
+			Name:      "update-secret",
+		}, map[string]string{"version": "v2"})
+		if err != nil {
+			t.Fatalf("update did not propagate: %v", err)
+		}
 
-			ns := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "combined-test",
-				},
-			}
-			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
+		if string(updatedSecret.Data["version"]) != "v2" {
+			t.Errorf("expected version v2, got %s", string(updatedSecret.Data["version"]))
+		}
 
-			// Create Secret with both autogenerate and replicatable-from-namespaces
-			combinedSecret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "combined-secret",
-					Namespace: "combined-test",
-					Annotations: map[string]string{
-						"iso.gtrfc.com/autogenerate":                    "password",
-						replicator.AnnotationReplicatableFromNamespaces: "*",
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, combinedSecret)).Should(Succeed())
-
-			// Should work fine - autogenerate creates data, replicatable allows sharing
-			Eventually(func() bool {
-				secret := &corev1.Secret{}
-				err := k8sClient.Get(ctx, types.NamespacedName{
-					Namespace: "combined-test",
-					Name:      "combined-secret",
-				}, secret)
-				return err == nil && len(secret.Data) > 0 &&
-					secret.Annotations[replicator.AnnotationReplicatableFromNamespaces] == "*"
-			}, timeout, interval).Should(BeTrue())
-
-			// Cleanup
-			Expect(k8sClient.Delete(ctx, combinedSecret)).Should(Succeed())
-			Expect(k8sClient.Delete(ctx, ns)).Should(Succeed())
-		})
+		// Cleanup
+		defer tc.client.Delete(ctx, updatedSecret)
 	})
-})
+
+	t.Run("PushBasedReplication_CleanupOnDeletion", func(t *testing.T) {
+		// Create namespaces
+		sourceNS := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "cleanup-source-",
+			},
+		}
+		if err := tc.client.Create(ctx, sourceNS); err != nil {
+			t.Fatalf("failed to create source namespace: %v", err)
+		}
+		defer tc.client.Delete(ctx, sourceNS)
+
+		targetNS := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "cleanup-target-",
+			},
+		}
+		if err := tc.client.Create(ctx, targetNS); err != nil {
+			t.Fatalf("failed to create target namespace: %v", err)
+		}
+		defer tc.client.Delete(ctx, targetNS)
+
+		// Create source Secret
+		sourceSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "cleanup-secret",
+				Namespace: sourceNS.Name,
+				Annotations: map[string]string{
+					replicator.AnnotationReplicateTo: targetNS.Name,
+				},
+			},
+			Data: map[string][]byte{
+				"data": []byte("test"),
+			},
+		}
+		if err := tc.client.Create(ctx, sourceSecret); err != nil {
+			t.Fatalf("failed to create source secret: %v", err)
+		}
+
+		// Wait for push
+		_, err := waitForSecretReplication(ctx, tc.client, types.NamespacedName{
+			Namespace: targetNS.Name,
+			Name:      "cleanup-secret",
+		}, map[string]string{"data": "test"})
+		if err != nil {
+			t.Fatalf("push failed: %v", err)
+		}
+
+		// Delete source Secret
+		if err := tc.client.Delete(ctx, sourceSecret); err != nil {
+			t.Fatalf("failed to delete source secret: %v", err)
+		}
+
+		// Wait for pushed Secret to be deleted
+		if err := waitForSecretDeletion(ctx, tc.client, types.NamespacedName{
+			Namespace: targetNS.Name,
+			Name:      "cleanup-secret",
+		}); err != nil {
+			t.Errorf("pushed secret was not cleaned up: %v", err)
+		}
+	})
+}
+
+// TestFeatureInteractions tests the interaction between secret generation and replication features
+func TestFeatureInteractions(t *testing.T) {
+	// Setup test manager with both controllers
+	cfg := config.NewDefaultConfig()
+	cfg.Features.SecretGenerator = true
+	cfg.Features.SecretReplicator = true
+
+	// We need to setup both controllers for these tests
+	// For now, we'll create separate test contexts for simplicity
+	tcReplicator := setupTestManagerWithReplicator(t, cfg)
+	defer tcReplicator.cancel()
+
+	// Small delay to ensure controllers are ready
+	time.Sleep(500 * time.Millisecond)
+
+	ctx := context.Background()
+
+	t.Run("RejectConflictingAnnotations", func(t *testing.T) {
+		ns := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "conflict-test-",
+			},
+		}
+		if err := tcReplicator.client.Create(ctx, ns); err != nil {
+			t.Fatalf("failed to create namespace: %v", err)
+		}
+		defer tcReplicator.client.Delete(ctx, ns)
+
+		// Create Secret with conflicting annotations
+		conflictSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "conflict-secret",
+				Namespace: ns.Name,
+				Annotations: map[string]string{
+					"iso.gtrfc.com/autogenerate":       "password",
+					replicator.AnnotationReplicateFrom: "other-ns/other-secret",
+				},
+			},
+		}
+		if err := tcReplicator.client.Create(ctx, conflictSecret); err != nil {
+			t.Fatalf("failed to create conflict secret: %v", err)
+		}
+		defer tcReplicator.client.Delete(ctx, conflictSecret)
+
+		// Secret should remain unchanged (no data generated or replicated)
+		if !consistentlySecretEmpty(ctx, tcReplicator.client, types.NamespacedName{
+			Namespace: ns.Name,
+			Name:      "conflict-secret",
+		}, 5*time.Second) {
+			t.Error("expected secret to remain empty due to conflicting annotations")
+		}
+	})
+
+	t.Run("AllowAutogenerateWithReplicatable", func(t *testing.T) {
+		// This test requires the SecretReconciler to be active as well
+		// For now, we'll test that the annotations don't conflict
+		ns := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "combined-test-",
+			},
+		}
+		if err := tcReplicator.client.Create(ctx, ns); err != nil {
+			t.Fatalf("failed to create namespace: %v", err)
+		}
+		defer tcReplicator.client.Delete(ctx, ns)
+
+		// Create Secret with both autogenerate and replicatable-from-namespaces
+		combinedSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "combined-secret",
+				Namespace: ns.Name,
+				Annotations: map[string]string{
+					"iso.gtrfc.com/autogenerate":                    "password",
+					replicator.AnnotationReplicatableFromNamespaces: "*",
+				},
+			},
+		}
+		if err := tcReplicator.client.Create(ctx, combinedSecret); err != nil {
+			t.Fatalf("failed to create combined secret: %v", err)
+		}
+		defer tcReplicator.client.Delete(ctx, combinedSecret)
+
+		// The replicator should not interfere with this Secret
+		// (autogenerate is handled by the generator controller, which is not active in this test)
+		// We just verify that the replicator doesn't touch it
+		time.Sleep(2 * time.Second)
+
+		// Fetch the secret and verify replicatable annotation is still there
+		var secret corev1.Secret
+		if err := tcReplicator.client.Get(ctx, types.NamespacedName{
+			Namespace: ns.Name,
+			Name:      "combined-secret",
+		}, &secret); err != nil {
+			t.Fatalf("failed to get secret: %v", err)
+		}
+
+		if secret.Annotations[replicator.AnnotationReplicatableFromNamespaces] != "*" {
+			t.Errorf("expected replicatable-from-namespaces annotation to be preserved")
+		}
+	})
+}

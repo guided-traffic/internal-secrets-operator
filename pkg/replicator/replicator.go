@@ -214,8 +214,8 @@ func CreateReplicatedSecret(source *corev1.Secret, targetNamespace string) *core
 			Namespace: targetNamespace,
 			Labels:    make(map[string]string),
 			Annotations: map[string]string{
-				AnnotationReplicatedFrom:       fmt.Sprintf("%s/%s", source.Namespace, source.Name),
-				AnnotationLastReplicatedAt:     time.Now().Format(time.RFC3339),
+				AnnotationReplicatedFrom:   fmt.Sprintf("%s/%s", source.Namespace, source.Name),
+				AnnotationLastReplicatedAt: time.Now().Format(time.RFC3339),
 			},
 		},
 		Type: source.Type,

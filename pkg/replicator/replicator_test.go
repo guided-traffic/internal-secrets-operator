@@ -650,8 +650,8 @@ func TestHasConflictingAnnotations(t *testing.T) {
 			secret: &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
-						AnnotationPrefix + "autogenerate":  "password",
-						AnnotationReplicateFrom:            "production/db-credentials",
+						AnnotationPrefix + "autogenerate": "password",
+						AnnotationReplicateFrom:           "production/db-credentials",
 					},
 				},
 			},

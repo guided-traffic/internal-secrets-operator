@@ -1,3 +1,6 @@
+//go:build integration && ginkgo
+// +build integration,ginkgo
+
 /*
 Copyright 2025 Guided Traffic.
 

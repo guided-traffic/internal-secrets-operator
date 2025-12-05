@@ -627,9 +627,9 @@ defaults:
 
 func TestLoadConfigWithFeatureToggles(t *testing.T) {
 	tests := []struct {
-		name                    string
-		configContent           string
-		expectedSecretGenerator bool
+		name                     string
+		configContent            string
+		expectedSecretGenerator  bool
 		expectedSecretReplicator bool
 	}{
 		{
@@ -639,7 +639,7 @@ features:
   secretGenerator: true
   secretReplicator: true
 `,
-			expectedSecretGenerator: true,
+			expectedSecretGenerator:  true,
 			expectedSecretReplicator: true,
 		},
 		{
@@ -649,7 +649,7 @@ features:
   secretGenerator: false
   secretReplicator: true
 `,
-			expectedSecretGenerator: false,
+			expectedSecretGenerator:  false,
 			expectedSecretReplicator: true,
 		},
 		{
@@ -659,7 +659,7 @@ features:
   secretGenerator: true
   secretReplicator: false
 `,
-			expectedSecretGenerator: true,
+			expectedSecretGenerator:  true,
 			expectedSecretReplicator: false,
 		},
 		{
@@ -669,7 +669,7 @@ features:
   secretGenerator: false
   secretReplicator: false
 `,
-			expectedSecretGenerator: false,
+			expectedSecretGenerator:  false,
 			expectedSecretReplicator: false,
 		},
 		{
@@ -679,7 +679,7 @@ defaults:
   type: string
   length: 32
 `,
-			expectedSecretGenerator: true,
+			expectedSecretGenerator:  true,
 			expectedSecretReplicator: true,
 		},
 	}

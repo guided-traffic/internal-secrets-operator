@@ -38,14 +38,14 @@ func TestSecretReplicatorReconciler_PullReplication(t *testing.T) {
 	_ = corev1.AddToScheme(scheme)
 
 	tests := []struct {
-		name             string
-		sourceSecret     *corev1.Secret
-		targetSecret     *corev1.Secret
-		expectedData     map[string]string
-		expectError      bool
-		expectEvent      bool
-		expectEventType  string
-		expectEventMsg   string
+		name            string
+		sourceSecret    *corev1.Secret
+		targetSecret    *corev1.Secret
+		expectedData    map[string]string
+		expectError     bool
+		expectEvent     bool
+		expectEventType string
+		expectEventMsg  string
 	}{
 		{
 			name: "successful pull replication",
@@ -383,7 +383,7 @@ func TestSecretReplicatorReconciler_ConflictingAnnotations(t *testing.T) {
 			Name:      "conflicting-secret",
 			Namespace: "default",
 			Annotations: map[string]string{
-				"iso.gtrfc.com/autogenerate":  "password",
+				"iso.gtrfc.com/autogenerate":       "password",
 				replicator.AnnotationReplicateFrom: "production/db-credentials",
 			},
 		},

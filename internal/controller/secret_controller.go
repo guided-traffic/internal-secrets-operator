@@ -287,62 +287,92 @@ func parseBoolAnnotation(annotations map[string]string, key string) (bool, bool)
 	}
 }
 
-// getCharsetFromAnnotations builds a charset based on annotations.
+// charsetOptions holds the resolved charset configuration
+type charsetOptions struct {
+	uppercase           bool
+	lowercase           bool
+	numbers             bool
+	specialChars        bool
+	allowedSpecialChars string
+}
+
+// resolveCharsetOptions resolves charset options from annotations and config defaults.
 // Priority: annotations > config defaults
-// Returns the charset and an error if the configuration is invalid.
-func (r *SecretReconciler) getCharsetFromAnnotations(annotations map[string]string) (string, error) {
-	// Start with config defaults
-	uppercase := r.Config.Defaults.String.Uppercase
-	lowercase := r.Config.Defaults.String.Lowercase
-	numbers := r.Config.Defaults.String.Numbers
-	specialChars := r.Config.Defaults.String.SpecialChars
-	allowedSpecialChars := r.Config.Defaults.String.AllowedSpecialChars
+func (r *SecretReconciler) resolveCharsetOptions(annotations map[string]string) charsetOptions {
+	opts := charsetOptions{
+		uppercase:           r.Config.Defaults.String.Uppercase,
+		lowercase:           r.Config.Defaults.String.Lowercase,
+		numbers:             r.Config.Defaults.String.Numbers,
+		specialChars:        r.Config.Defaults.String.SpecialChars,
+		allowedSpecialChars: r.Config.Defaults.String.AllowedSpecialChars,
+	}
 
 	// Override with annotations if present
 	if val, ok := parseBoolAnnotation(annotations, AnnotationStringUppercase); ok {
-		uppercase = val
+		opts.uppercase = val
 	}
 	if val, ok := parseBoolAnnotation(annotations, AnnotationStringLowercase); ok {
-		lowercase = val
+		opts.lowercase = val
 	}
 	if val, ok := parseBoolAnnotation(annotations, AnnotationStringNumbers); ok {
-		numbers = val
+		opts.numbers = val
 	}
 	if val, ok := parseBoolAnnotation(annotations, AnnotationStringSpecialChars); ok {
-		specialChars = val
+		opts.specialChars = val
 	}
 	// Note: We check for the annotation's existence, not just non-empty value
 	// This allows users to explicitly set it to empty if they want to override the config
 	if val, ok := annotations[AnnotationStringAllowedSpecialChars]; ok {
-		allowedSpecialChars = val
+		opts.allowedSpecialChars = val
 	}
 
+	return opts
+}
+
+// validateCharsetOptions validates charset options.
+func validateCharsetOptions(opts charsetOptions) error {
 	// Validate that at least one charset option is enabled
-	if !uppercase && !lowercase && !numbers && !specialChars {
-		return "", fmt.Errorf("at least one charset option must be enabled (uppercase, lowercase, numbers, or specialChars)")
+	if !opts.uppercase && !opts.lowercase && !opts.numbers && !opts.specialChars {
+		return fmt.Errorf("at least one charset option must be enabled (uppercase, lowercase, numbers, or specialChars)")
 	}
 
 	// Validate that if specialChars is enabled, allowedSpecialChars is not empty
-	if specialChars && allowedSpecialChars == "" {
-		return "", fmt.Errorf("allowedSpecialChars must not be empty when specialChars is enabled")
+	if opts.specialChars && opts.allowedSpecialChars == "" {
+		return fmt.Errorf("allowedSpecialChars must not be empty when specialChars is enabled")
 	}
 
-	// Build charset string
+	return nil
+}
+
+// buildCharsetString builds a charset string from charset options.
+func buildCharsetString(opts charsetOptions) string {
 	var charset string
-	if lowercase {
+	if opts.lowercase {
 		charset += "abcdefghijklmnopqrstuvwxyz"
 	}
-	if uppercase {
+	if opts.uppercase {
 		charset += "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	}
-	if numbers {
+	if opts.numbers {
 		charset += "0123456789"
 	}
-	if specialChars {
-		charset += allowedSpecialChars
+	if opts.specialChars {
+		charset += opts.allowedSpecialChars
+	}
+	return charset
+}
+
+// getCharsetFromAnnotations builds a charset based on annotations.
+// Priority: annotations > config defaults
+// Returns the charset and an error if the configuration is invalid.
+func (r *SecretReconciler) getCharsetFromAnnotations(annotations map[string]string) (string, error) {
+	opts := r.resolveCharsetOptions(annotations)
+
+	if err := validateCharsetOptions(opts); err != nil {
+		return "", err
 	}
 
-	return charset, nil
+	return buildCharsetString(opts), nil
 }
 
 // secretUpdateResult contains the result of updating a secret

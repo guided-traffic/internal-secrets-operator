@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,11 +30,23 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"github.com/guided-traffic/internal-secrets-operator/pkg/config"
 	"github.com/guided-traffic/internal-secrets-operator/pkg/generator"
 )
+
+// MockClock is a mock implementation of Clock for testing
+type MockClock struct {
+	currentTime time.Time
+}
+
+// Now returns the mocked current time
+func (m *MockClock) Now() time.Time {
+	return m.currentTime
+}
 
 func TestParseFields(t *testing.T) {
 	tests := []struct {
@@ -1757,5 +1770,412 @@ func TestReconcilerWithNilGeneratedAt(t *testing.T) {
 
 	if *result.timeUntilRotation != 10*time.Minute {
 		t.Errorf("expected timeUntilRotation to be 10m, got %v", *result.timeUntilRotation)
+	}
+}
+
+func TestUpdateSecretAndEmitEventsUpdateError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-secret",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationAutogenerate: "password",
+			},
+		},
+	}
+
+	// Create a client that will fail on Update
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				return fmt.Errorf("simulated update error")
+			},
+		}).
+		Build()
+
+	gen := generator.NewSecretGenerator()
+	fakeRecorder := record.NewFakeRecorder(10)
+
+	reconciler := &SecretReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Generator:     gen,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: fakeRecorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      secret.Name,
+			Namespace: secret.Namespace,
+		},
+	}
+
+	// Reconcile should return error when Update fails
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err == nil {
+		t.Error("Expected error from Reconcile when Update fails")
+	}
+}
+
+func TestReconcileGetError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	// Create a client that will fail on Get (not NotFound)
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				return fmt.Errorf("simulated get error")
+			},
+		}).
+		Build()
+
+	gen := generator.NewSecretGenerator()
+	fakeRecorder := record.NewFakeRecorder(10)
+
+	reconciler := &SecretReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Generator:     gen,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: fakeRecorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      "any-secret",
+			Namespace: "default",
+		},
+	}
+
+	// Reconcile should return error when Get fails (not NotFound)
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err == nil {
+		t.Error("Expected error from Reconcile when Get fails (not NotFound)")
+	}
+}
+
+func TestReconcileRotationWithCreateEventsEnabled(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	// Create a MockClock to control time
+	fixedTime := time.Date(2025, 12, 6, 12, 0, 0, 0, time.UTC)
+	mockClock := &MockClock{currentTime: fixedTime}
+
+	// Secret that was generated 15 minutes ago with 10 minute rotation
+	generatedAt := fixedTime.Add(-15 * time.Minute)
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-secret",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationAutogenerate: "password",
+				AnnotationRotate:       "10m",
+				AnnotationGeneratedAt:  generatedAt.Format(time.RFC3339),
+			},
+		},
+		Data: map[string][]byte{
+			"password": []byte("old-value"),
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret).
+		Build()
+
+	gen := generator.NewSecretGenerator()
+	fakeRecorder := record.NewFakeRecorder(10)
+	cfg := config.NewDefaultConfig()
+	cfg.Rotation.MinInterval = config.Duration(1 * time.Minute)
+	cfg.Rotation.CreateEvents = true // Enable rotation events
+
+	reconciler := &SecretReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Generator:     gen,
+		Config:        cfg,
+		EventRecorder: fakeRecorder,
+		Clock:         mockClock,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      secret.Name,
+			Namespace: secret.Namespace,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Check that a rotation success event was emitted
+	select {
+	case event := <-fakeRecorder.Events:
+		if !strings.Contains(event, EventReasonRotationSucceeded) {
+			t.Errorf("expected rotation success event, got: %s", event)
+		}
+	default:
+		t.Error("expected a rotation success event to be emitted")
+	}
+}
+
+func TestReconcileRotationWithCreateEventsDisabled(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	// Create a MockClock to control time
+	fixedTime := time.Date(2025, 12, 6, 12, 0, 0, 0, time.UTC)
+	mockClock := &MockClock{currentTime: fixedTime}
+
+	// Secret that was generated 15 minutes ago with 10 minute rotation
+	generatedAt := fixedTime.Add(-15 * time.Minute)
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-secret",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationAutogenerate: "password",
+				AnnotationRotate:       "10m",
+				AnnotationGeneratedAt:  generatedAt.Format(time.RFC3339),
+			},
+		},
+		Data: map[string][]byte{
+			"password": []byte("old-value"),
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret).
+		Build()
+
+	gen := generator.NewSecretGenerator()
+	fakeRecorder := record.NewFakeRecorder(10)
+	cfg := config.NewDefaultConfig()
+	cfg.Rotation.MinInterval = config.Duration(1 * time.Minute)
+	cfg.Rotation.CreateEvents = false // Disable rotation events (default)
+
+	reconciler := &SecretReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Generator:     gen,
+		Config:        cfg,
+		EventRecorder: fakeRecorder,
+		Clock:         mockClock,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      secret.Name,
+			Namespace: secret.Namespace,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Check that NO rotation event was emitted (CreateEvents is false)
+	select {
+	case event := <-fakeRecorder.Events:
+		if strings.Contains(event, EventReasonRotationSucceeded) {
+			t.Errorf("expected no rotation event when CreateEvents is false, got: %s", event)
+		}
+	default:
+		// No event is expected - this is correct
+	}
+}
+
+func TestCalculateNextRotationWithJustRotatedFieldAndExisting(t *testing.T) {
+	// Tests the path where both timeUntilRotation and rotationInterval are calculated
+	// for multiple fields and the minimum is selected
+	cfg := config.NewDefaultConfig()
+	cfg.Rotation.MinInterval = config.Duration(1 * time.Minute)
+
+	reconciler := &SecretReconciler{
+		Config: cfg,
+	}
+
+	// generatedAt very recent (just rotated)
+	generatedAt := time.Now()
+
+	annotations := map[string]string{
+		AnnotationRotatePrefix + "password": "5m",  // Just rotated, next in 5 min
+		AnnotationRotatePrefix + "token":    "10m", // Just rotated, next in 10 min
+	}
+	fields := []string{"password", "token"}
+
+	nextRotation := reconciler.calculateNextRotation(annotations, fields, &generatedAt)
+
+	if nextRotation == nil {
+		t.Error("expected nextRotation to be non-nil")
+		return
+	}
+
+	// Should select the minimum: 5 min (for password)
+	expected := 5 * time.Minute
+	tolerance := 1 * time.Second
+	diff := *nextRotation - expected
+	if diff < -tolerance || diff > tolerance {
+		t.Errorf("expected nextRotation ~%v, got %v", expected, *nextRotation)
+	}
+}
+
+func TestCalculateNextRotationNoFieldsWithRotation(t *testing.T) {
+	cfg := config.NewDefaultConfig()
+
+	reconciler := &SecretReconciler{
+		Config: cfg,
+	}
+
+	generatedAt := time.Now()
+
+	// No rotation annotations
+	annotations := map[string]string{}
+	fields := []string{"password", "token"}
+
+	nextRotation := reconciler.calculateNextRotation(annotations, fields, &generatedAt)
+
+	// Should return nil when no fields have rotation configured
+	if nextRotation != nil {
+		t.Errorf("expected nil nextRotation when no rotation configured, got %v", *nextRotation)
+	}
+}
+
+func TestReconcileWithNilSecretAnnotations(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	// Secret with nil annotations
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-secret",
+			Namespace: "default",
+			// Annotations intentionally nil
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret).
+		Build()
+
+	gen := generator.NewSecretGenerator()
+	fakeRecorder := record.NewFakeRecorder(10)
+
+	reconciler := &SecretReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Generator:     gen,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: fakeRecorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      secret.Name,
+			Namespace: secret.Namespace,
+		},
+	}
+
+	// Should handle nil annotations gracefully
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestReconcileWithNilSecretData(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	// Secret with nil Data
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-secret",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationAutogenerate: "password",
+			},
+		},
+		// Data intentionally nil
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret).
+		Build()
+
+	gen := generator.NewSecretGenerator()
+	fakeRecorder := record.NewFakeRecorder(10)
+
+	reconciler := &SecretReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Generator:     gen,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: fakeRecorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      secret.Name,
+			Namespace: secret.Namespace,
+		},
+	}
+
+	// Should initialize Data map and generate value
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Fetch the updated secret
+	var updatedSecret corev1.Secret
+	err = fakeClient.Get(context.Background(), req.NamespacedName, &updatedSecret)
+	if err != nil {
+		t.Fatalf("failed to get secret: %v", err)
+	}
+
+	// Should have generated a password
+	if _, ok := updatedSecret.Data["password"]; !ok {
+		t.Error("expected password to be generated")
+	}
+}
+
+func TestSinceMethod(t *testing.T) {
+	// Test the since method
+	fixedTime := time.Date(2025, 12, 6, 12, 0, 0, 0, time.UTC)
+	mockClock := &MockClock{currentTime: fixedTime}
+
+	reconciler := &SecretReconciler{
+		Config: config.NewDefaultConfig(),
+		Clock:  mockClock,
+	}
+
+	pastTime := fixedTime.Add(-10 * time.Minute)
+	elapsed := reconciler.since(pastTime)
+
+	expected := 10 * time.Minute
+	if elapsed != expected {
+		t.Errorf("expected since to return %v, got %v", expected, elapsed)
 	}
 }

@@ -780,3 +780,196 @@ func TestConfigValidateNegativeRotationMinInterval(t *testing.T) {
 		t.Errorf("unexpected error message: %v", err)
 	}
 }
+
+func TestDurationUnmarshalYAMLParseError(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	// Write config with invalid day format (not a number before 'd')
+	configContent := `
+defaults:
+  type: string
+  length: 32
+  string:
+    uppercase: true
+    lowercase: true
+    numbers: true
+rotation:
+  minInterval: "xyzd"
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+
+	_, err := LoadConfig(configPath)
+	if err == nil {
+		t.Error("expected error for invalid day format duration, got nil")
+	}
+}
+
+func TestDurationDurationMethod(t *testing.T) {
+	d := Duration(15 * time.Minute)
+	result := d.Duration()
+
+	if result != 15*time.Minute {
+		t.Errorf("expected 15m, got %v", result)
+	}
+}
+
+func TestBuildCharsetAllOptions(t *testing.T) {
+	tests := []struct {
+		name             string
+		opts             StringOptions
+		expectedContains []string
+		expectedNotEmpty bool
+	}{
+		{
+			name: "only lowercase",
+			opts: StringOptions{
+				Lowercase: true,
+			},
+			expectedContains: []string{"a", "z"},
+			expectedNotEmpty: true,
+		},
+		{
+			name: "only uppercase",
+			opts: StringOptions{
+				Uppercase: true,
+			},
+			expectedContains: []string{"A", "Z"},
+			expectedNotEmpty: true,
+		},
+		{
+			name: "only numbers",
+			opts: StringOptions{
+				Numbers: true,
+			},
+			expectedContains: []string{"0", "9"},
+			expectedNotEmpty: true,
+		},
+		{
+			name: "special chars with custom allowed",
+			opts: StringOptions{
+				SpecialChars:        true,
+				AllowedSpecialChars: "!@#",
+			},
+			expectedContains: []string{"!", "@", "#"},
+			expectedNotEmpty: true,
+		},
+		{
+			name: "special chars without allowed chars",
+			opts: StringOptions{
+				SpecialChars:        true,
+				AllowedSpecialChars: "",
+			},
+			expectedNotEmpty: false, // Empty because AllowedSpecialChars is empty
+		},
+		{
+			name: "all options enabled",
+			opts: StringOptions{
+				Lowercase:           true,
+				Uppercase:           true,
+				Numbers:             true,
+				SpecialChars:        true,
+				AllowedSpecialChars: "!@#",
+			},
+			expectedContains: []string{"a", "Z", "0", "!"},
+			expectedNotEmpty: true,
+		},
+		{
+			name: "all options disabled",
+			opts: StringOptions{
+				Lowercase:    false,
+				Uppercase:    false,
+				Numbers:      false,
+				SpecialChars: false,
+			},
+			expectedNotEmpty: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			charset := tt.opts.BuildCharset()
+
+			if tt.expectedNotEmpty && charset == "" {
+				t.Error("expected non-empty charset")
+			}
+
+			if !tt.expectedNotEmpty && charset != "" {
+				t.Errorf("expected empty charset, got %q", charset)
+			}
+
+			for _, s := range tt.expectedContains {
+				if !strings.Contains(charset, s) {
+					t.Errorf("expected charset to contain %q, got %q", s, charset)
+				}
+			}
+		})
+	}
+}
+
+func TestConfigValidateSpecialCharsEnabledButEmpty(t *testing.T) {
+	cfg := NewDefaultConfig()
+	cfg.Defaults.String.SpecialChars = true
+	cfg.Defaults.String.AllowedSpecialChars = ""
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Error("expected error when specialChars is enabled but allowedSpecialChars is empty")
+	}
+	if !strings.Contains(err.Error(), "allowedSpecialChars must not be empty") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestConfigValidateBytesType(t *testing.T) {
+	cfg := NewDefaultConfig()
+	cfg.Defaults.Type = "bytes"
+
+	err := cfg.Validate()
+	if err != nil {
+		t.Errorf("unexpected error for 'bytes' type: %v", err)
+	}
+}
+
+func TestLoadConfigAppliesDefaultsForEmptyValues(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	// Write config with empty/zero values that should get defaults
+	configContent := `
+defaults:
+  type: ""
+  length: 0
+  string:
+    uppercase: true
+    lowercase: true
+    numbers: true
+    allowedSpecialChars: ""
+rotation:
+  minInterval: 0
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should have defaults applied for empty/zero values
+	if cfg.Defaults.Type != DefaultType {
+		t.Errorf("expected type %q, got %q", DefaultType, cfg.Defaults.Type)
+	}
+	if cfg.Defaults.Length != DefaultLength {
+		t.Errorf("expected length %d, got %d", DefaultLength, cfg.Defaults.Length)
+	}
+	if cfg.Defaults.String.AllowedSpecialChars != DefaultAllowedSpecialChars {
+		t.Errorf("expected allowedSpecialChars %q, got %q", DefaultAllowedSpecialChars, cfg.Defaults.String.AllowedSpecialChars)
+	}
+	if cfg.Rotation.MinInterval.Duration() != DefaultRotationMinInterval {
+		t.Errorf("expected rotation minInterval %v, got %v", DefaultRotationMinInterval, cfg.Rotation.MinInterval.Duration())
+	}
+}

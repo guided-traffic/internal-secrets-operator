@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -29,6 +30,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"github.com/guided-traffic/internal-secrets-operator/pkg/config"
 	"github.com/guided-traffic/internal-secrets-operator/pkg/replicator"
@@ -1343,5 +1345,746 @@ func TestSecretReplicatorReconciler_PushReplicationWithFinalizer(t *testing.T) {
 	}, targetSecret)
 	if err != nil {
 		t.Errorf("Expected target secret to be created, got error: %v", err)
+	}
+}
+
+func TestSecretReplicatorReconciler_PushUpdateExistingOwnedSecret(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	sourceSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "push-update-secret",
+			Namespace:  "production",
+			Finalizers: []string{replicator.FinalizerReplicateToCleanup},
+			Annotations: map[string]string{
+				replicator.AnnotationReplicateTo: "staging",
+			},
+		},
+		Data: map[string][]byte{
+			"key": []byte("new-value"),
+		},
+	}
+
+	// Existing target secret that we own (has replicated-from annotation)
+	targetSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "push-update-secret",
+			Namespace: "staging",
+			Annotations: map[string]string{
+				replicator.AnnotationReplicatedFrom: "production/push-update-secret",
+			},
+		},
+		Data: map[string][]byte{
+			"key": []byte("old-value"),
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(sourceSecret, targetSecret).
+		Build()
+
+	recorder := record.NewFakeRecorder(10)
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: recorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: sourceSecret.Namespace,
+			Name:      sourceSecret.Name,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Errorf("Reconcile() error = %v", err)
+	}
+
+	// Verify target was updated with new value
+	updatedTarget := &corev1.Secret{}
+	err = fakeClient.Get(context.Background(), types.NamespacedName{
+		Namespace: "staging",
+		Name:      sourceSecret.Name,
+	}, updatedTarget)
+	if err != nil {
+		t.Fatalf("Failed to get target secret: %v", err)
+	}
+
+	if string(updatedTarget.Data["key"]) != "new-value" {
+		t.Errorf("Expected target secret data to be updated to 'new-value', got '%s'", string(updatedTarget.Data["key"]))
+	}
+}
+
+func TestSecretReplicatorReconciler_PullReplicationUpdateError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	sourceSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "db-credentials",
+			Namespace: "production",
+			Annotations: map[string]string{
+				replicator.AnnotationReplicatableFromNamespaces: "staging",
+			},
+		},
+		Data: map[string][]byte{
+			"password": []byte("secret"),
+		},
+	}
+
+	targetSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "db-credentials",
+			Namespace: "staging",
+			Annotations: map[string]string{
+				replicator.AnnotationReplicateFrom: "production/db-credentials",
+			},
+		},
+	}
+
+	// Create a client that will fail on Update
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(sourceSecret, targetSecret).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				// Fail specifically when updating the target secret
+				if secret, ok := obj.(*corev1.Secret); ok && secret.Namespace == "staging" {
+					return fmt.Errorf("simulated update error")
+				}
+				return client.Update(ctx, obj, opts...)
+			},
+		}).
+		Build()
+
+	recorder := record.NewFakeRecorder(10)
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: recorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: targetSecret.Namespace,
+			Name:      targetSecret.Name,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err == nil {
+		t.Error("Expected error from Reconcile when update fails")
+	}
+
+	// Check for warning event
+	select {
+	case event := <-recorder.Events:
+		if !strings.Contains(event, "Warning") || !strings.Contains(event, "Failed to update") {
+			t.Errorf("Expected warning event about failed update, got: %s", event)
+		}
+	default:
+		t.Error("Expected a warning event for failed update")
+	}
+}
+
+func TestSecretReplicatorReconciler_PushCreateError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	sourceSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "push-create-error-secret",
+			Namespace: "production",
+			Annotations: map[string]string{
+				replicator.AnnotationReplicateTo: "staging",
+			},
+		},
+		Data: map[string][]byte{
+			"key": []byte("value"),
+		},
+	}
+
+	// Create a client that will fail on Create
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(sourceSecret).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				if secret, ok := obj.(*corev1.Secret); ok && secret.Namespace == "staging" {
+					return fmt.Errorf("simulated create error")
+				}
+				return client.Create(ctx, obj, opts...)
+			},
+		}).
+		Build()
+
+	recorder := record.NewFakeRecorder(10)
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: recorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: sourceSecret.Namespace,
+			Name:      sourceSecret.Name,
+		},
+	}
+
+	// This should not return an error (continues with other namespaces)
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Errorf("Reconcile() error = %v, expected nil (error is logged but not returned)", err)
+	}
+
+	// Check for warning event about create failure
+	select {
+	case event := <-recorder.Events:
+		if !strings.Contains(event, "Warning") || !strings.Contains(event, "PushFailed") {
+			t.Errorf("Expected warning event about push failure, got: %s", event)
+		}
+	default:
+		t.Error("Expected a warning event for failed create")
+	}
+}
+
+func TestSecretReplicatorReconciler_PushUpdateOwnedSecretError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	sourceSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "push-update-error-secret",
+			Namespace:  "production",
+			Finalizers: []string{replicator.FinalizerReplicateToCleanup},
+			Annotations: map[string]string{
+				replicator.AnnotationReplicateTo: "staging",
+			},
+		},
+		Data: map[string][]byte{
+			"key": []byte("new-value"),
+		},
+	}
+
+	// Existing target secret that we own
+	targetSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "push-update-error-secret",
+			Namespace: "staging",
+			Annotations: map[string]string{
+				replicator.AnnotationReplicatedFrom: "production/push-update-error-secret",
+			},
+		},
+		Data: map[string][]byte{
+			"key": []byte("old-value"),
+		},
+	}
+
+	// Create a client that will fail on Update for the target secret
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(sourceSecret, targetSecret).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				if secret, ok := obj.(*corev1.Secret); ok && secret.Namespace == "staging" && secret.Name == "push-update-error-secret" {
+					return fmt.Errorf("simulated update error")
+				}
+				return client.Update(ctx, obj, opts...)
+			},
+		}).
+		Build()
+
+	recorder := record.NewFakeRecorder(10)
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: recorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: sourceSecret.Namespace,
+			Name:      sourceSecret.Name,
+		},
+	}
+
+	// Push replication continues even if one namespace fails
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Errorf("Reconcile() error = %v, expected nil", err)
+	}
+
+	// Check for warning event about update failure
+	select {
+	case event := <-recorder.Events:
+		if !strings.Contains(event, "Warning") || !strings.Contains(event, "PushFailed") {
+			t.Errorf("Expected warning event about push failure, got: %s", event)
+		}
+	default:
+		t.Error("Expected a warning event for failed update")
+	}
+}
+
+func TestSecretReplicatorReconciler_HandleDeletionListError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	sourceSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "push-deletion-list-error",
+			Namespace:         "production",
+			DeletionTimestamp: &metav1.Time{Time: metav1.Now().Time},
+			Finalizers:        []string{replicator.FinalizerReplicateToCleanup},
+			Annotations: map[string]string{
+				replicator.AnnotationReplicateTo: "staging",
+			},
+		},
+	}
+
+	// Create a client that will fail on List
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(sourceSecret).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, client client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				return fmt.Errorf("simulated list error")
+			},
+		}).
+		Build()
+
+	recorder := record.NewFakeRecorder(10)
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: recorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: sourceSecret.Namespace,
+			Name:      sourceSecret.Name,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err == nil {
+		t.Error("Expected error from Reconcile when List fails during deletion cleanup")
+	}
+}
+
+func TestSecretReplicatorReconciler_HandleDeletionDeleteError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	sourceSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "push-deletion-delete-error",
+			Namespace:         "production",
+			DeletionTimestamp: &metav1.Time{Time: metav1.Now().Time},
+			Finalizers:        []string{replicator.FinalizerReplicateToCleanup},
+			Annotations: map[string]string{
+				replicator.AnnotationReplicateTo: "staging",
+			},
+		},
+	}
+
+	replicatedSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "push-deletion-delete-error",
+			Namespace: "staging",
+			Annotations: map[string]string{
+				replicator.AnnotationReplicatedFrom: "production/push-deletion-delete-error",
+			},
+		},
+	}
+
+	// Create a client that will fail on Delete
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(sourceSecret, replicatedSecret).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Delete: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+				if secret, ok := obj.(*corev1.Secret); ok && secret.Namespace == "staging" {
+					return fmt.Errorf("simulated delete error")
+				}
+				return client.Delete(ctx, obj, opts...)
+			},
+		}).
+		Build()
+
+	recorder := record.NewFakeRecorder(10)
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: recorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: sourceSecret.Namespace,
+			Name:      sourceSecret.Name,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err == nil {
+		t.Error("Expected error from Reconcile when Delete fails during deletion cleanup")
+	}
+}
+
+func TestSecretReplicatorReconciler_HandleDeletionRemoveFinalizerError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	sourceSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "push-finalizer-remove-error",
+			Namespace:         "production",
+			DeletionTimestamp: &metav1.Time{Time: metav1.Now().Time},
+			Finalizers:        []string{replicator.FinalizerReplicateToCleanup},
+			Annotations: map[string]string{
+				replicator.AnnotationReplicateTo: "staging",
+			},
+		},
+	}
+
+	replicatedSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "push-finalizer-remove-error",
+			Namespace: "staging",
+			Annotations: map[string]string{
+				replicator.AnnotationReplicatedFrom: "production/push-finalizer-remove-error",
+			},
+		},
+	}
+
+	updateCallCount := 0
+
+	// Create a client that will fail on the last Update (removing finalizer)
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(sourceSecret, replicatedSecret).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				if secret, ok := obj.(*corev1.Secret); ok && secret.Namespace == "production" {
+					updateCallCount++
+					// Fail only on removing finalizer (second update of the source secret)
+					if updateCallCount > 0 {
+						return fmt.Errorf("simulated finalizer removal error")
+					}
+				}
+				return client.Update(ctx, obj, opts...)
+			},
+		}).
+		Build()
+
+	recorder := record.NewFakeRecorder(10)
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: recorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: sourceSecret.Namespace,
+			Name:      sourceSecret.Name,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err == nil {
+		t.Error("Expected error from Reconcile when removing finalizer fails")
+	}
+}
+
+func TestSecretReplicatorReconciler_HandleDeletionNoReplicateToAnnotation(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	// Secret being deleted with finalizer but NO replicate-to annotation
+	sourceSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "finalizer-no-annotation",
+			Namespace:         "production",
+			DeletionTimestamp: &metav1.Time{Time: metav1.Now().Time},
+			Finalizers:        []string{replicator.FinalizerReplicateToCleanup},
+			// No replicate-to annotation
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(sourceSecret).
+		Build()
+
+	recorder := record.NewFakeRecorder(10)
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: recorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: sourceSecret.Namespace,
+			Name:      sourceSecret.Name,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Errorf("Reconcile() error = %v, expected nil", err)
+	}
+}
+
+func TestSecretReplicatorReconciler_HandleDeletionNoReplicateToRemoveFinalizerError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	// Secret being deleted with finalizer but NO replicate-to annotation
+	sourceSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "finalizer-remove-error",
+			Namespace:         "production",
+			DeletionTimestamp: &metav1.Time{Time: metav1.Now().Time},
+			Finalizers:        []string{replicator.FinalizerReplicateToCleanup},
+			// No replicate-to annotation
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(sourceSecret).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				return fmt.Errorf("simulated update error")
+			},
+		}).
+		Build()
+
+	recorder := record.NewFakeRecorder(10)
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: recorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: sourceSecret.Namespace,
+			Name:      sourceSecret.Name,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err == nil {
+		t.Error("Expected error from Reconcile when Update fails")
+	}
+}
+
+func TestSecretReplicatorReconciler_PushAddFinalizerError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	sourceSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "push-add-finalizer-error",
+			Namespace: "production",
+			Annotations: map[string]string{
+				replicator.AnnotationReplicateTo: "staging",
+			},
+		},
+		Data: map[string][]byte{
+			"key": []byte("value"),
+		},
+	}
+
+	// Create a client that will fail on Update when adding finalizer
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(sourceSecret).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				if secret, ok := obj.(*corev1.Secret); ok && secret.Namespace == "production" {
+					return fmt.Errorf("simulated finalizer add error")
+				}
+				return client.Update(ctx, obj, opts...)
+			},
+		}).
+		Build()
+
+	recorder := record.NewFakeRecorder(10)
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: recorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: sourceSecret.Namespace,
+			Name:      sourceSecret.Name,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err == nil {
+		t.Error("Expected error from Reconcile when adding finalizer fails")
+	}
+}
+
+func TestSecretReplicatorReconciler_FindTargetsForSourceListError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	sourceSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "db-credentials",
+			Namespace: "production",
+			Annotations: map[string]string{
+				replicator.AnnotationReplicatableFromNamespaces: "*",
+			},
+		},
+	}
+
+	// Create a client that will fail on List
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(sourceSecret).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, client client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				return fmt.Errorf("simulated list error")
+			},
+		}).
+		Build()
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: record.NewFakeRecorder(10),
+	}
+
+	requests := reconciler.findTargetsForSource(context.Background(), sourceSecret)
+
+	// Should return nil when List fails
+	if requests != nil {
+		t.Errorf("Expected nil requests when List fails, got %d requests", len(requests))
+	}
+}
+
+func TestSecretReplicatorReconciler_ReconcileGetError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	// Create a client that will fail on Get (not NotFound)
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				return fmt.Errorf("simulated get error")
+			},
+		}).
+		Build()
+
+	recorder := record.NewFakeRecorder(10)
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: recorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: "default",
+			Name:      "any-secret",
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err == nil {
+		t.Error("Expected error from Reconcile when Get fails (not NotFound)")
+	}
+}
+
+func TestSecretReplicatorReconciler_PullReplicationGetSourceError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	targetSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "target-secret",
+			Namespace: "staging",
+			Annotations: map[string]string{
+				replicator.AnnotationReplicateFrom: "production/db-credentials",
+			},
+		},
+	}
+
+	getCallCount := 0
+
+	// Create a client that will fail on the second Get (for source secret)
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(targetSecret).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				getCallCount++
+				// First Get is for the target secret (reconcile), second is for source
+				if getCallCount == 2 {
+					return fmt.Errorf("simulated get source error")
+				}
+				return client.Get(ctx, key, obj, opts...)
+			},
+		}).
+		Build()
+
+	recorder := record.NewFakeRecorder(10)
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: recorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: targetSecret.Namespace,
+			Name:      targetSecret.Name,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err == nil {
+		t.Error("Expected error from Reconcile when getting source secret fails (not NotFound)")
 	}
 }

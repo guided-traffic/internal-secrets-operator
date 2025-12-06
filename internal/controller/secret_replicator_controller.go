@@ -313,6 +313,7 @@ func (r *SecretReplicatorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	})
 
 	return ctrl.NewControllerManagedBy(mgr).
+		Named("secret-replicator").
 		For(&corev1.Secret{}).
 		WithEventFilter(replicationPredicate).
 		// Watch source Secrets to trigger reconciliation of target Secrets

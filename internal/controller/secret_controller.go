@@ -644,6 +644,7 @@ func (r *SecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	})
 
 	return ctrl.NewControllerManagedBy(mgr).
+		Named("secret-generator").
 		For(&corev1.Secret{}).
 		WithEventFilter(hasAutogenerateAnnotation).
 		Complete(r)

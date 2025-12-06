@@ -91,16 +91,37 @@ func main() {
 	charset := cfg.Defaults.String.BuildCharset()
 	gen := generator.NewSecretGeneratorWithCharset(charset)
 
-	// Set up the Secret controller
-	if err = (&controller.SecretReconciler{
-		Client:        mgr.GetClient(),
-		Scheme:        mgr.GetScheme(),
-		Generator:     gen,
-		Config:        cfg,
-		EventRecorder: mgr.GetEventRecorderFor("secret-operator"),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Secret")
-		os.Exit(1)
+	// Set up the Secret Generator controller (if enabled)
+	if cfg.Features.SecretGenerator {
+		if err = (&controller.SecretReconciler{
+			Client:        mgr.GetClient(),
+			Scheme:        mgr.GetScheme(),
+			Generator:     gen,
+			Config:        cfg,
+			EventRecorder: mgr.GetEventRecorderFor("secret-operator"),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "SecretGenerator")
+			os.Exit(1)
+		}
+		setupLog.Info("Secret Generator controller enabled")
+	} else {
+		setupLog.Info("Secret Generator controller disabled")
+	}
+
+	// Set up the Secret Replicator controller (if enabled)
+	if cfg.Features.SecretReplicator {
+		if err = (&controller.SecretReplicatorReconciler{
+			Client:        mgr.GetClient(),
+			Scheme:        mgr.GetScheme(),
+			Config:        cfg,
+			EventRecorder: mgr.GetEventRecorderFor("secret-replicator"),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "SecretReplicator")
+			os.Exit(1)
+		}
+		setupLog.Info("Secret Replicator controller enabled")
+	} else {
+		setupLog.Info("Secret Replicator controller disabled")
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

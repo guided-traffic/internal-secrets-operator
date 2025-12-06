@@ -41,6 +41,7 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
+            - --config=/etc/secret-operator/config.yaml
             - --health-probe-bind-address=:{{ .Values.healthProbe.port }}
             - --metrics-bind-address=:{{ .Values.service.port }}
             {{- if .Values.controller.leaderElection }}
@@ -69,6 +70,8 @@ spec:
             - name: config
               mountPath: /etc/secret-operator
               readOnly: true
+            - name: tmp
+              mountPath: /tmp
           {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
@@ -76,6 +79,8 @@ spec:
         - name: config
           configMap:
             name: {{ include "internal-secrets-operator.fullname" . }}-config
+        - name: tmp
+          emptyDir: {}
       {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
       {{- end }}

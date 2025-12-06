@@ -11,14 +11,24 @@ image:
 controller:
   leaderElection: false  # Single replica, no need for leader election
 
-# Faster health probes for quicker test feedback
+# Health probes optimized for E2E testing
 livenessProbe:
-  initialDelaySeconds: 5
+  httpGet:
+    path: /healthz
+    port: health
+  initialDelaySeconds: 10
   periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
 
 readinessProbe:
-  initialDelaySeconds: 3
+  httpGet:
+    path: /readyz
+    port: health
+  initialDelaySeconds: 5
   periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
 
 # Reduced CPU limit for testing
 resources:

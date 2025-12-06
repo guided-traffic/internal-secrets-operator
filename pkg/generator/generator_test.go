@@ -195,3 +195,91 @@ func BenchmarkGenerateBytes(b *testing.B) {
 		_, _ = gen.GenerateBytes(32)
 	}
 }
+
+func TestGenerateStringWithCharset(t *testing.T) {
+	gen := NewSecretGenerator()
+
+	tests := []struct {
+		name      string
+		length    int
+		charset   string
+		wantError bool
+	}{
+		{"valid charset", 16, "abc123", false},
+		{"single char charset", 10, "a", false},
+		{"empty charset", 16, "", true},
+		{"zero length", 0, "abc", true},
+		{"negative length", -1, "abc", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := gen.GenerateStringWithCharset(tt.length, tt.charset)
+
+			if tt.wantError {
+				if err == nil {
+					t.Error("expected error, got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+
+			if len(result) != tt.length {
+				t.Errorf("expected length %d, got %d", tt.length, len(result))
+			}
+
+			// Verify all characters are from the charset
+			for _, c := range result {
+				if !strings.ContainsRune(tt.charset, c) {
+					t.Errorf("result contains character %q not in charset %q", c, tt.charset)
+				}
+			}
+		})
+	}
+}
+
+func TestGenerateWithCharset(t *testing.T) {
+	gen := NewSecretGenerator()
+
+	tests := []struct {
+		name      string
+		genType   string
+		length    int
+		charset   string
+		wantError bool
+	}{
+		{"string type with custom charset", "string", 16, "abc123", false},
+		{"empty type defaults to string", "", 16, "abc123", false},
+		{"bytes type ignores charset", "bytes", 16, "abc123", false},
+		{"unknown type", "invalid", 16, "abc123", true},
+		{"string with empty charset", "string", 16, "", true},
+		{"zero length string", "string", 0, "abc", true},
+		{"zero length bytes", "bytes", 0, "abc", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := gen.GenerateWithCharset(tt.genType, tt.length, tt.charset)
+
+			if tt.wantError {
+				if err == nil {
+					t.Error("expected error, got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+
+			if result == "" {
+				t.Error("expected non-empty result")
+			}
+		})
+	}
+}

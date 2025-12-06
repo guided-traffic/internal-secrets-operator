@@ -6,9 +6,10 @@ metadata:
   labels:
     {{- include "internal-secrets-operator.labels" . | nindent 4 }}
 rules:
+  # Note: 'create' and 'delete' are required for secret replication features
   - apiGroups: [""]
     resources: ["secrets"]
-    verbs: ["get", "list", "watch", "update", "patch"]
+    verbs: ["get", "list", "watch", "update", "patch", "create", "delete"]
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["create", "patch"]

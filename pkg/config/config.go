@@ -32,6 +32,9 @@ const (
 	// DefaultType is the default generation type
 	DefaultType = "string"
 
+	// TypeBytes is the bytes generation type
+	TypeBytes = "bytes"
+
 	// DefaultLength is the default length for generated values
 	DefaultLength = 32
 
@@ -46,6 +49,13 @@ const (
 type Config struct {
 	Defaults DefaultsConfig `yaml:"defaults"`
 	Rotation RotationConfig `yaml:"rotation"`
+	Features FeaturesConfig `yaml:"features"`
+}
+
+// FeaturesConfig holds feature toggle configuration
+type FeaturesConfig struct {
+	SecretGenerator  bool `yaml:"secretGenerator"`
+	SecretReplicator bool `yaml:"secretReplicator"`
 }
 
 // DefaultsConfig holds the default values for secret generation
@@ -138,6 +148,10 @@ func NewDefaultConfig() *Config {
 			MinInterval:  Duration(DefaultRotationMinInterval),
 			CreateEvents: false,
 		},
+		Features: FeaturesConfig{
+			SecretGenerator:  true,
+			SecretReplicator: true,
+		},
 	}
 }
 
@@ -190,7 +204,7 @@ func LoadConfig(path string) (*Config, error) {
 func (c *Config) Validate() error {
 	// Validate generation type
 	switch c.Defaults.Type {
-	case "string", "bytes":
+	case DefaultType, TypeBytes:
 		// valid types
 	default:
 		return fmt.Errorf("invalid default type: %s, must be 'string' or 'bytes'", c.Defaults.Type)

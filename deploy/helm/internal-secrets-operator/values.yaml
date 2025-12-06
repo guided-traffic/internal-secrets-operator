@@ -46,6 +46,12 @@ config:
     # Create Normal Events when secrets are rotated
     # Note: Enabling this can create many Events for frequently rotating secrets
     createEvents: false
+  # Feature toggles (enable/disable operator features)
+  features:
+    # Enable automatic secret value generation
+    secretGenerator: true
+    # Enable secret replication across namespaces
+    secretReplicator: true
 
 serviceAccount:
   # Specifies whether a service account should be created

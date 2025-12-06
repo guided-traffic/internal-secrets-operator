@@ -9,6 +9,7 @@ A Kubernetes operator that automatically generates random secret values. Use it 
 
 ## Features
 
+### Secret Generation
 - 🔐 **Automatic Secret Generation** - Automatically generates cryptographically secure random values for Kubernetes Secrets
 - 🔄 **Automatic Secret Rotation** - Periodically rotate secrets based on configurable time intervals
 - 🎯 **Annotation-Based** - Simple annotation-based configuration, no CRDs required
@@ -16,6 +17,16 @@ A Kubernetes operator that automatically generates random secret values. Use it 
 - 🔢 **Multiple Types** - Support for `string` and `bytes` generation
 - 🔤 **Customizable Charset** - Configure which characters to include in generated strings
 - ✅ **Idempotent** - Only generates values for empty fields, preserves existing data
+
+### Secret Replication
+- 🔄 **Pull-based Replication** - Secrets can pull data from other namespaces with mutual consent
+- 📤 **Push-based Replication** - Automatically push secrets to multiple target namespaces
+- 🛡️ **Secure by Design** - Mutual consent model prevents unauthorized access
+- 🎯 **Pattern Matching** - Support for glob patterns in namespace allowlists (`*`, `?`, `[abc]`, `[a-z]`)
+- 🔁 **Auto-sync** - Target Secrets automatically update when source changes
+- 🧹 **Auto-cleanup** - Pushed Secrets are automatically deleted when source is removed
+- 🚫 **Conflict Detection** - Prevents conflicting features (`autogenerate` + `replicate-from`)
+- ✨ **Flexible Combinations** - Generate secrets in one namespace and share with others
 
 ## Quick Start
 
@@ -326,6 +337,212 @@ spec:
                 name: rotating-secret
 ```
 
+## Secret Replication
+
+The operator supports replicating Secrets across namespaces in two modes:
+- **Pull-based**: A target Secret pulls data from a source Secret in another namespace
+- **Push-based**: A source Secret automatically pushes its data to target namespaces
+
+Both modes use a **mutual consent** security model and support automatic synchronization.
+
+### Pull-based Replication
+
+Pull-based replication requires **explicit consent from both sides**:
+
+1. **Source Secret** must have `replicatable-from-namespaces` annotation (allowlist)
+2. **Target Secret** must have `replicate-from` annotation pointing to the source
+
+#### Example: Pull Replication
+
+```yaml
+---
+# Source Secret in production namespace
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-credentials
+  namespace: production
+  annotations:
+    # Allow staging namespace to replicate from this Secret
+    iso.gtrfc.com/replicatable-from-namespaces: "staging"
+type: Opaque
+data:
+  username: cHJvZHVzZXI=  # produser
+  password: cHJvZHBhc3M=  # prodpass
+
+---
+# Target Secret in staging namespace
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-credentials
+  namespace: staging
+  annotations:
+    # Pull data from production/db-credentials
+    iso.gtrfc.com/replicate-from: "production/db-credentials"
+type: Opaque
+# data will be automatically populated
+```
+
+#### Glob Pattern Matching
+
+The `replicatable-from-namespaces` annotation supports glob patterns:
+
+```yaml
+annotations:
+  # Allow specific namespaces
+  iso.gtrfc.com/replicatable-from-namespaces: "staging,development"
+
+  # Allow all namespaces matching pattern
+  iso.gtrfc.com/replicatable-from-namespaces: "env-*,namespace-[0-9]*"
+
+  # Allow ALL namespaces
+  iso.gtrfc.com/replicatable-from-namespaces: "*"
+```
+
+**Supported glob patterns:**
+- `*` - matches any sequence of characters
+- `?` - matches any single character
+- `[abc]` - matches any character in the set (a, b, or c)
+- `[a-z]` - matches any character in the range (a through z)
+- `[0-9]` - matches any digit
+
+#### Pull Replication Behavior
+
+- ✅ Target automatically syncs when source changes
+- ✅ If source is deleted, target keeps last known data (snapshot)
+- ✅ Existing data in target is overwritten (replicated data wins)
+- ✅ Replication only occurs with mutual consent (both annotations match)
+- ❌ Target cannot replicate from multiple sources (one source per target)
+
+### Push-based Replication
+
+Push-based replication automatically creates and maintains Secrets in target namespaces.
+
+#### Example: Push Replication
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secret
+  namespace: production
+  annotations:
+    # Push this Secret to staging and development namespaces
+    iso.gtrfc.com/replicate-to: "staging,development"
+type: Opaque
+data:
+  app-id: YXBwLTEyMzQ1  # app-12345
+  app-secret: c2VjcmV0a2V5  # secretkey
+```
+
+This will automatically create `app-secret` in both `staging` and `development` namespaces.
+
+#### Push Replication Behavior
+
+- ✅ Automatically creates Secrets in target namespaces
+- ✅ Targets automatically sync when source changes
+- ✅ Pushed Secrets have `replicated-from` annotation for tracking
+- ✅ When source is deleted, all pushed Secrets are automatically cleaned up
+- ⚠️ If target exists without `replicated-from` annotation: Skipped (Warning Event)
+- ✅ If target exists with matching `replicated-from`: Updated
+
+### Replication Annotations
+
+| Annotation | Used By | Description | Example |
+|------------|---------|-------------|---------|
+| `replicatable-from-namespaces` | Source (pull) | Allowlist of namespaces that can pull from this Secret | `"staging,dev"`, `"env-*"`, `"*"` |
+| `replicate-from` | Target (pull) | Source Secret to pull data from | `"production/db-credentials"` |
+| `replicate-to` | Source (push) | Target namespaces to push this Secret to | `"staging,development"` |
+| `replicated-from` | Target (auto) | Indicates this Secret was replicated (set by operator) | `"production/app-secret"` |
+| `last-replicated-at` | Target (auto) | Timestamp of last replication (set by operator) | `"2025-12-05T10:00:00Z"` |
+
+### Combining Generation and Replication
+
+You can combine secret generation with replication:
+
+#### ✅ Valid: Generate and Allow Pull
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: api-credentials
+  namespace: production
+  annotations:
+    # Generate API key automatically
+    iso.gtrfc.com/autogenerate: "api-key"
+    iso.gtrfc.com/length: "32"
+
+    # Allow other namespaces to pull
+    iso.gtrfc.com/replicatable-from-namespaces: "staging,development"
+type: Opaque
+```
+
+#### ✅ Valid: Generate and Push
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: encryption-keys
+  namespace: security
+  annotations:
+    # Generate encryption keys
+    iso.gtrfc.com/autogenerate: "master-key,data-key"
+    iso.gtrfc.com/type: "bytes"
+    iso.gtrfc.com/length: "32"
+
+    # Push to application namespaces
+    iso.gtrfc.com/replicate-to: "app-1,app-2,app-3"
+type: Opaque
+```
+
+#### ❌ Invalid: Generate and Pull (Conflicting Features)
+
+```yaml
+# This will NOT work and will generate a Warning Event
+apiVersion: v1
+kind: Secret
+metadata:
+  name: invalid-secret
+  namespace: default
+  annotations:
+    # ERROR: Cannot use both autogenerate and replicate-from
+    iso.gtrfc.com/autogenerate: "password"
+    iso.gtrfc.com/replicate-from: "other-ns/other-secret"
+type: Opaque
+```
+
+### Replication Examples
+
+See the [replication examples](config/samples/) for more:
+- [Pull-based replication](config/samples/secret_pull_replication.yaml)
+- [Push-based replication](config/samples/secret_push_replication.yaml)
+- [Combined generation + replication](config/samples/secret_combined_generate_replicate.yaml)
+
+### Security Considerations
+
+1. **Mutual Consent**: Pull replication requires both source and target to explicitly allow it
+2. **RBAC**: The operator needs `create` and `delete` permissions for push-based replication
+3. **Namespace Access**: Control operator access via RBAC (ClusterRoleBinding or manual RoleBindings)
+4. **Audit Trail**: All replicated Secrets have `replicated-from` annotation for tracking
+5. **Events**: The operator creates Warning Events when replication fails
+
+### Troubleshooting Replication
+
+Check Secret events for replication errors:
+
+```bash
+kubectl describe secret my-secret
+```
+
+Common issues:
+- **Replication denied**: Target namespace not in source allowlist
+- **Source not found**: Check source namespace and name in `replicate-from`
+- **Push failed**: Target Secret exists without `replicated-from` annotation
+- **Conflicting features**: Both `autogenerate` and `replicate-from` annotations present
+
 ## Regenerating Secrets
 
 The operator respects existing values and will **not** overwrite them. To regenerate a secret value, you have two options:
@@ -450,6 +667,13 @@ rotation:
   # Create Normal Events when secrets are rotated
   # Useful for auditing, but may create many events with frequent rotations
   createEvents: false
+
+features:
+  # Enable automatic secret value generation
+  secretGenerator: true
+
+  # Enable secret replication across namespaces
+  secretReplicator: true
 ```
 
 ### Configuration Reference
@@ -465,6 +689,8 @@ rotation:
 | `defaults.string.allowedSpecialChars` | string | `!@#$%^&*()_+-=[]{}|;:,.<>?` | Which special characters to use when `specialChars` is enabled |
 | `rotation.minInterval` | duration | `5m` | Minimum allowed rotation interval. Rotation intervals below this value trigger a warning and use `minInterval` instead |
 | `rotation.createEvents` | boolean | `false` | Create Normal Events when secrets are rotated. Useful for auditing |
+| `features.secretGenerator` | boolean | `true` | Enable automatic secret value generation feature |
+| `features.secretReplicator` | boolean | `true` | Enable secret replication across namespaces feature |
 
 ### Validation Rules
 

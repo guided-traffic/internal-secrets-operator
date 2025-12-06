@@ -61,6 +61,14 @@ func TestMain(m *testing.M) {
 		zap.StacktraceLevel(zapcore.PanicLevel),
 	))
 
+	// Set KUBEBUILDER_ASSETS if not already set (for local development on macOS ARM64)
+	// In CI/CD, this will already be set by the Makefile to the correct platform
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		projectRoot := getProjectRoot()
+		kubebuilderAssets := filepath.Join(projectRoot, "bin", "k8s", "1.29.0-darwin-arm64")
+		os.Setenv("KUBEBUILDER_ASSETS", kubebuilderAssets)
+	}
+
 	testEnv = &envtest.Environment{
 		ErrorIfCRDPathMissing: false,
 	}
@@ -81,11 +89,17 @@ func TestMain(m *testing.M) {
 	// Run tests
 	code := m.Run()
 
-	// Cleanup
-	err = testEnv.Stop()
-	if err != nil {
-		logf.Log.Error(err, "failed to stop test environment")
-	}
+	// Cleanup - use defer with panic recovery to ensure exit code is preserved
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logf.Log.Info("recovered from panic during cleanup", "panic", r)
+			}
+		}()
+		if err := testEnv.Stop(); err != nil {
+			logf.Log.Error(err, "failed to stop test environment (ignoring)")
+		}
+	}()
 
 	os.Exit(code)
 }
@@ -220,6 +234,65 @@ func createNamespace(t *testing.T, c client.Client) *corev1.Namespace {
 	}
 
 	return ns
+}
+
+// setupTestManagerWithReplicator creates a manager with SecretReplicatorReconciler
+func setupTestManagerWithReplicator(t *testing.T, operatorConfig *config.Config) *testContext {
+	t.Helper()
+
+	// Disable metrics server to avoid port conflicts
+	metricsAddr := "0"
+
+	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
+		Scheme: scheme.Scheme,
+		Metrics: metricsserver.Options{
+			BindAddress: metricsAddr,
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to create manager: %v", err)
+	}
+
+	// Create event recorder
+	eventBroadcaster := record.NewBroadcaster()
+	eventRecorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: "secret-replicator"})
+
+	if operatorConfig == nil {
+		operatorConfig = config.NewDefaultConfig()
+	}
+
+	// Setup SecretReplicatorReconciler
+	replicatorReconciler := &controller.SecretReplicatorReconciler{
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		Config:        operatorConfig,
+		EventRecorder: eventRecorder,
+	}
+
+	// Use unique controller name to avoid conflicts in tests
+	counter := atomic.AddInt64(&controllerCounter, 1)
+	controllerName := "secret-replicator-" + time.Now().Format("150405") + "-" + string(rune('a'+counter%26))
+
+	// Use the proper SetupWithManagerAndName to ensure all watches are configured correctly
+	err = replicatorReconciler.SetupWithManagerAndName(mgr, controllerName)
+	if err != nil {
+		t.Fatalf("failed to setup replicator controller: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		if err := mgr.Start(ctx); err != nil {
+			t.Logf("manager stopped: %v", err)
+		}
+	}()
+
+	// Wait for manager and cache to be ready
+	time.Sleep(500 * time.Millisecond)
+
+	return &testContext{
+		client: mgr.GetClient(),
+		cancel: cancel,
+	}
 }
 
 // getProjectRoot returns the project root directory

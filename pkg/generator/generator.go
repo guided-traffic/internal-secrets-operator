@@ -19,6 +19,8 @@ package generator
 import (
 	"crypto/rand"
 	"fmt"
+
+	"github.com/guided-traffic/internal-secrets-operator/pkg/config"
 )
 
 // Generator defines the interface for secret generation
@@ -114,9 +116,9 @@ func (g *SecretGenerator) Generate(genType string, length int) (string, error) {
 // GenerateWithCharset generates a value based on the specified type with a custom charset
 func (g *SecretGenerator) GenerateWithCharset(genType string, length int, charset string) (string, error) {
 	switch genType {
-	case "string", "":
+	case config.DefaultType, "":
 		return g.GenerateStringWithCharset(length, charset)
-	case "bytes":
+	case config.TypeBytes:
 		bytes, err := g.GenerateBytes(length)
 		if err != nil {
 			return "", err

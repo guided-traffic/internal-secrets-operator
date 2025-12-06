@@ -5,9 +5,10 @@ metadata:
   name: secret-operator-role
 rules:
   # Secrets permissions
+  # Note: 'create' and 'delete' are required for secret replication features
   - apiGroups: [""]
     resources: ["secrets"]
-    verbs: ["get", "list", "watch", "update", "patch"]
+    verbs: ["get", "list", "watch", "update", "patch", "create", "delete"]
   # Events permissions for recording events
   - apiGroups: [""]
     resources: ["events"]

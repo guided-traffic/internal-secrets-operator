@@ -342,14 +342,18 @@ jobs:
           kubectl -n internal-secrets-operator-system get pods -o wide || true
           echo "=== Describe pods ==="
           kubectl -n internal-secrets-operator-system describe pods || true
-          echo "=== Operator logs (if pod exists) ==="
+          echo "=== Operator logs (current) ==="
           kubectl -n internal-secrets-operator-system logs -l app.kubernetes.io/name=internal-secrets-operator --tail=100 || true
+          echo "=== Operator logs (previous) ==="
+          kubectl -n internal-secrets-operator-system logs -l app.kubernetes.io/name=internal-secrets-operator --previous --tail=100 || true
           echo "=== Events ==="
           kubectl -n internal-secrets-operator-system get events --sort-by='.lastTimestamp' || true
           echo "=== ConfigMap ==="
           kubectl -n internal-secrets-operator-system get configmap -o yaml || true
           echo "=== ServiceAccount ==="
           kubectl -n internal-secrets-operator-system get serviceaccount -o yaml || true
+          echo "=== RBAC ==="
+          kubectl -n internal-secrets-operator-system get rolebinding,clusterrolebinding | grep internal-secrets-operator || true
           exit 1
 
       - name: Wait for operator

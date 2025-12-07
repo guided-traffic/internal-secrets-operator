@@ -2,8 +2,30 @@ apiVersion: v1
 entries:
   internal-secrets-operator:
   - apiVersion: v2
+    appVersion: 1.2.1
+    created: "2025-12-07T15:25:00.305788135Z"
+    description: A Kubernetes controller that automatically generates random secret
+      values
+    digest: 80360164a11092216dbfb2dd04137c18d75989df093803bb171fe6ae3c4d766e
+    home: https://github.com/guided-traffic/internal-secrets-operator
+    keywords:
+    - kubernetes
+    - secrets
+    - operator
+    - controller
+    maintainers:
+    - name: guided-traffic
+      url: https://github.com/guided-traffic
+    name: internal-secrets-operator
+    sources:
+    - https://github.com/guided-traffic/internal-secrets-operator
+    type: application
+    urls:
+    - https://guided-traffic.github.io/internal-secrets-operator/internal-secrets-operator-1.2.1.tgz
+    version: 1.2.1
+  - apiVersion: v2
     appVersion: 1.2.0
-    created: "2025-12-06T23:06:44.787371773Z"
+    created: "2025-12-07T15:25:00.305248425Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 08cb850eadca6ed03a9a2fa6879b1f6662e6af5ca56f140aa1d5701c595fa526
@@ -25,7 +47,7 @@ entries:
     version: 1.2.0
   - apiVersion: v2
     appVersion: 1.1.5
-    created: "2025-12-06T23:06:44.785636662Z"
+    created: "2025-12-07T15:25:00.304718834Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 827a7328fc9cba1bfa3420d64d9d09b76447a1d73f1d702ca4c0aec32aa38721
@@ -47,7 +69,7 @@ entries:
     version: 1.1.5
   - apiVersion: v2
     appVersion: 1.1.0
-    created: "2025-12-06T23:06:44.784793778Z"
+    created: "2025-12-07T15:25:00.304185685Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: b2e81308750dc6b2f1560bfdaaea4a3f47cf95828ea937aa4f2fb147ab8eff2b
@@ -67,4 +89,4 @@ entries:
     urls:
     - https://guided-traffic.github.io/internal-secrets-operator/internal-secrets-operator-1.1.0.tgz
     version: 1.1.0
-generated: "2025-12-06T23:06:44.783710291Z"
+generated: "2025-12-07T15:25:00.303503796Z"

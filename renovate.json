@@ -220,6 +220,19 @@
       "datasourceTemplate": "golang-version",
       "versioningTemplate": "semver",
       "extractVersionTemplate": "^(?<version>\\d+\\.\\d+)"
+    },
+    {
+      "description": "Update Go version in GitHub workflows",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/.*\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "GO_VERSION:\\s+['\"]?(?<currentValue>[\\d.]+)['\"]?"
+      ],
+      "depNameTemplate": "golang",
+      "datasourceTemplate": "golang-version",
+      "versioningTemplate": "semver"
     }
   ],
   "gomod": {

@@ -26,7 +26,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -92,7 +92,7 @@ type SecretReconciler struct {
 	Scheme        *runtime.Scheme
 	Generator     generator.Generator
 	Config        *config.Config
-	EventRecorder record.EventRecorder
+	EventRecorder events.EventRecorder
 	// Clock is used to get the current time. If nil, time.Now() is used.
 	// This allows for time mocking in tests.
 	Clock Clock
@@ -444,12 +444,12 @@ func (r *SecretReconciler) updateSecretAndEmitEvents(
 func (r *SecretReconciler) emitSuccessEvent(secret *corev1.Secret, rotated bool, logger logr.Logger) {
 	if rotated {
 		if r.Config.Rotation.CreateEvents {
-			r.EventRecorder.Event(secret, corev1.EventTypeNormal, EventReasonRotationSucceeded,
+			r.EventRecorder.Eventf(secret, nil, corev1.EventTypeNormal, EventReasonRotationSucceeded, "",
 				"Successfully rotated values for secret fields")
 		}
 		logger.Info("Successfully rotated Secret values")
 	} else {
-		r.EventRecorder.Event(secret, corev1.EventTypeNormal, EventReasonGenerationSucceeded,
+		r.EventRecorder.Eventf(secret, nil, corev1.EventTypeNormal, EventReasonGenerationSucceeded, "",
 			"Successfully generated values for secret fields")
 		logger.Info("Successfully updated Secret with generated values")
 	}
@@ -542,7 +542,7 @@ func (r *SecretReconciler) generateFieldValue(
 	// Note: We still allow initial generation even if rotation interval is invalid
 	if rotationCheck.err != nil {
 		logger.Error(nil, rotationCheck.errMsg, "field", field)
-		r.EventRecorder.Event(secret, corev1.EventTypeWarning, EventReasonRotationFailed, rotationCheck.errMsg)
+		r.EventRecorder.Eventf(secret, nil, corev1.EventTypeWarning, EventReasonRotationFailed, "", rotationCheck.errMsg)
 		// If field exists, skip it (invalid rotation config prevents rotation)
 		// If field doesn't exist, we still generate the initial value
 		if fieldExists {
@@ -573,7 +573,7 @@ func (r *SecretReconciler) generateFieldValue(
 			result.errMsg = fmt.Sprintf("Invalid charset configuration for field %q: %v", field, charsetErr)
 			result.skipRest = true
 			logger.Error(charsetErr, "Invalid charset configuration", "field", field)
-			r.EventRecorder.Event(secret, corev1.EventTypeWarning, EventReasonGenerationFailed, result.errMsg)
+			r.EventRecorder.Eventf(secret, nil, corev1.EventTypeWarning, EventReasonGenerationFailed, "", result.errMsg)
 			return result
 		}
 		value, err = r.Generator.GenerateWithCharset(genType, length, charset)
@@ -587,7 +587,7 @@ func (r *SecretReconciler) generateFieldValue(
 		result.errMsg = fmt.Sprintf("Failed to generate value for field %q: %v", field, err)
 		result.skipRest = true
 		logger.Error(err, "Failed to generate value", "field", field, "type", genType)
-		r.EventRecorder.Event(secret, corev1.EventTypeWarning, EventReasonGenerationFailed, result.errMsg)
+		r.EventRecorder.Eventf(secret, nil, corev1.EventTypeWarning, EventReasonGenerationFailed, "", result.errMsg)
 		return result
 	}
 

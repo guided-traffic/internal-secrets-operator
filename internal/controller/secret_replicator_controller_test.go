@@ -27,7 +27,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -164,7 +163,7 @@ func TestSecretReplicatorReconciler_PullReplication(t *testing.T) {
 				WithObjects(objs...).
 				Build()
 
-			recorder := record.NewFakeRecorder(10)
+			recorder := NewTestEventRecorder(10)
 
 			reconciler := &SecretReplicatorReconciler{
 				Client:        fakeClient,
@@ -315,7 +314,7 @@ func TestSecretReplicatorReconciler_PushReplication(t *testing.T) {
 				WithObjects(objs...).
 				Build()
 
-			recorder := record.NewFakeRecorder(10)
+			recorder := NewTestEventRecorder(10)
 
 			reconciler := &SecretReplicatorReconciler{
 				Client:        fakeClient,
@@ -398,7 +397,7 @@ func TestSecretReplicatorReconciler_ConflictingAnnotations(t *testing.T) {
 		WithObjects(secret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -483,7 +482,7 @@ func TestSecretReplicatorReconciler_FindTargetsForSource(t *testing.T) {
 		Client:        fakeClient,
 		Scheme:        scheme,
 		Config:        config.NewDefaultConfig(),
-		EventRecorder: record.NewFakeRecorder(10),
+		EventRecorder: NewTestEventRecorder(10),
 	}
 
 	requests := reconciler.findTargetsForSource(context.Background(), sourceSecret)
@@ -544,7 +543,7 @@ func TestSecretReplicatorReconciler_SourceWithoutAllowlist(t *testing.T) {
 		WithObjects(sourceSecret, targetSecret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -613,7 +612,7 @@ func TestSecretReplicatorReconciler_PushToMultipleNamespaces(t *testing.T) {
 		WithObjects(sourceSecret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -682,7 +681,7 @@ func TestSecretReplicatorReconciler_FinalizerAddedOnPush(t *testing.T) {
 		WithObjects(sourceSecret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -739,7 +738,7 @@ func TestSecretReplicatorReconciler_AllowAutogenerateWithReplicatableFromNamespa
 		WithObjects(secret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -856,7 +855,7 @@ func TestSecretReplicatorReconciler_HandleDeletion(t *testing.T) {
 				WithObjects(objs...).
 				Build()
 
-			recorder := record.NewFakeRecorder(10)
+			recorder := NewTestEventRecorder(10)
 
 			reconciler := &SecretReplicatorReconciler{
 				Client:        fakeClient,
@@ -934,7 +933,7 @@ func TestSecretReplicatorReconciler_HandleDeletionWithoutFinalizer(t *testing.T)
 		WithObjects(sourceSecret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -969,7 +968,7 @@ func TestSecretReplicatorReconciler_SecretNotFound(t *testing.T) {
 		WithScheme(scheme).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1011,7 +1010,7 @@ func TestSecretReplicatorReconciler_InvalidSourceReference(t *testing.T) {
 		WithObjects(targetSecret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1079,7 +1078,7 @@ func TestSecretReplicatorReconciler_SourceBeingDeleted(t *testing.T) {
 		WithObjects(sourceSecret, targetSecret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1133,7 +1132,7 @@ func TestSecretReplicatorReconciler_PushEmptyNamespaceList(t *testing.T) {
 		WithObjects(sourceSecret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1181,7 +1180,7 @@ func TestSecretReplicatorReconciler_FindTargetsForSourceWithNonSecret(t *testing
 		Client:        fakeClient,
 		Scheme:        scheme,
 		Config:        config.NewDefaultConfig(),
-		EventRecorder: record.NewFakeRecorder(10),
+		EventRecorder: NewTestEventRecorder(10),
 	}
 
 	// Pass a non-Secret object (use a ConfigMap-like object but cast it wrong)
@@ -1224,7 +1223,7 @@ func TestSecretReplicatorReconciler_FindTargetsForSourceNoTargets(t *testing.T) 
 		Client:        fakeClient,
 		Scheme:        scheme,
 		Config:        config.NewDefaultConfig(),
-		EventRecorder: record.NewFakeRecorder(10),
+		EventRecorder: NewTestEventRecorder(10),
 	}
 
 	requests := reconciler.findTargetsForSource(context.Background(), sourceSecret)
@@ -1257,7 +1256,7 @@ func TestSecretReplicatorReconciler_PushReplicationWithOnlyWhitespaceNamespaces(
 		WithObjects(sourceSecret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1317,7 +1316,7 @@ func TestSecretReplicatorReconciler_PushReplicationWithFinalizer(t *testing.T) {
 		WithObjects(sourceSecret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1386,7 +1385,7 @@ func TestSecretReplicatorReconciler_PushUpdateExistingOwnedSecret(t *testing.T) 
 		WithObjects(sourceSecret, targetSecret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1464,7 +1463,7 @@ func TestSecretReplicatorReconciler_PullReplicationUpdateError(t *testing.T) {
 		}).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1527,7 +1526,7 @@ func TestSecretReplicatorReconciler_PushCreateError(t *testing.T) {
 		}).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1606,7 +1605,7 @@ func TestSecretReplicatorReconciler_PushUpdateOwnedSecretError(t *testing.T) {
 		}).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1666,7 +1665,7 @@ func TestSecretReplicatorReconciler_HandleDeletionListError(t *testing.T) {
 		}).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1728,7 +1727,7 @@ func TestSecretReplicatorReconciler_HandleDeletionDeleteError(t *testing.T) {
 		}).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1796,7 +1795,7 @@ func TestSecretReplicatorReconciler_HandleDeletionRemoveFinalizerError(t *testin
 		}).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1838,7 +1837,7 @@ func TestSecretReplicatorReconciler_HandleDeletionNoReplicateToAnnotation(t *tes
 		WithObjects(sourceSecret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1885,7 +1884,7 @@ func TestSecretReplicatorReconciler_HandleDeletionNoReplicateToRemoveFinalizerEr
 		}).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1938,7 +1937,7 @@ func TestSecretReplicatorReconciler_PushAddFinalizerError(t *testing.T) {
 		}).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1989,7 +1988,7 @@ func TestSecretReplicatorReconciler_FindTargetsForSourceListError(t *testing.T) 
 		Client:        fakeClient,
 		Scheme:        scheme,
 		Config:        config.NewDefaultConfig(),
-		EventRecorder: record.NewFakeRecorder(10),
+		EventRecorder: NewTestEventRecorder(10),
 	}
 
 	requests := reconciler.findTargetsForSource(context.Background(), sourceSecret)
@@ -2014,7 +2013,7 @@ func TestSecretReplicatorReconciler_ReconcileGetError(t *testing.T) {
 		}).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -2068,7 +2067,7 @@ func TestSecretReplicatorReconciler_PullReplicationGetSourceError(t *testing.T) 
 		}).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -2121,7 +2120,7 @@ func TestSecretReplicatorReconciler_PushToNonexistentNamespace(t *testing.T) {
 		}).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -2189,7 +2188,7 @@ func TestSecretReplicatorReconciler_PushPermissionDenied(t *testing.T) {
 		}).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,

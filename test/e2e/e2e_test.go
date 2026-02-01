@@ -1252,6 +1252,8 @@ func TestSecretCharsetInvalidConfiguration(t *testing.T) {
 	// Look for a warning event about invalid charset
 	var foundWarning bool
 	for _, event := range events.Items {
+		t.Logf("Event: Regarding.Name=%s, Regarding.Kind=%s, Type=%s, Reason=%s",
+			event.Regarding.Name, event.Regarding.Kind, event.Type, event.Reason)
 		if event.Regarding.Name == "test-charset-invalid-empty" && event.Regarding.Kind == "Secret" {
 			if event.Type == "Warning" && event.Reason == "GenerationFailed" {
 				t.Logf("Found warning event: %s - %s", event.Reason, event.Note)
@@ -1262,7 +1264,8 @@ func TestSecretCharsetInvalidConfiguration(t *testing.T) {
 	}
 
 	if !foundWarning {
-		t.Error("Expected a warning event about invalid charset configuration")
+		t.Errorf("Expected a warning event about invalid charset configuration, found %d events", len(events.Items))
+		return
 	}
 
 	t.Log("Invalid charset configuration test passed - operator correctly rejected the configuration")

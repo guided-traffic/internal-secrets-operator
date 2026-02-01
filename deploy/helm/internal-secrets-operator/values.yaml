@@ -17,6 +17,8 @@ fullnameOverride: ""
 controller:
   # Enable leader election for high availability
   leaderElection: true
+  # Log level: debug, info, warn, error
+  logLevel: info
 
 # Operator configuration (written 1:1 to ConfigMap and mounted as config file)
 # See: /etc/secret-operator/config.yaml

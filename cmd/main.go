@@ -58,7 +58,7 @@ func main() {
 	flag.StringVar(&configPath, "config", config.DefaultConfigPath, "Path to the configuration file.")
 
 	opts := zap.Options{
-		Development: true,
+		Development: false,
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()

@@ -15,6 +15,7 @@
   "platformAutomerge": true,
   "automergeType": "pr",
   "automergeStrategy": "squash",
+  "ignoreTests": false,
   "prConcurrentLimit": 5,
   "rebaseWhen": "conflicted",
   "postUpdateOptions": [

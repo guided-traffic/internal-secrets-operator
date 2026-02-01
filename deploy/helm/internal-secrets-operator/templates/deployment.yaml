@@ -44,6 +44,7 @@ spec:
             - --config=/etc/secret-operator/config.yaml
             - --health-probe-bind-address=:{{ .Values.healthProbe.port }}
             - --metrics-bind-address=:{{ .Values.service.port }}
+            - --zap-log-level={{ .Values.controller.logLevel | default "info" }}
             {{- if .Values.controller.leaderElection }}
             - --leader-elect
             {{- end }}

@@ -2,8 +2,30 @@ apiVersion: v1
 entries:
   internal-secrets-operator:
   - apiVersion: v2
+    appVersion: 1.2.5
+    created: "2026-02-01T19:09:04.039410106Z"
+    description: A Kubernetes controller that automatically generates random secret
+      values
+    digest: f39f554813c4a9f35fb0a7f344b6d7aaa07d2a63b6b900a96634c609026606e5
+    home: https://github.com/guided-traffic/internal-secrets-operator
+    keywords:
+    - kubernetes
+    - secrets
+    - operator
+    - controller
+    maintainers:
+    - name: guided-traffic
+      url: https://github.com/guided-traffic
+    name: internal-secrets-operator
+    sources:
+    - https://github.com/guided-traffic/internal-secrets-operator
+    type: application
+    urls:
+    - https://guided-traffic.github.io/internal-secrets-operator/internal-secrets-operator-1.2.5.tgz
+    version: 1.2.5
+  - apiVersion: v2
     appVersion: 1.2.4
-    created: "2025-12-19T03:45:19.225491306Z"
+    created: "2026-02-01T19:09:04.03877241Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 6c9bb9a9a97e443892a3fd9004db897b62c7c8fcf47cc1bc988c2a40cd9bcbef
@@ -25,7 +47,7 @@ entries:
     version: 1.2.4
   - apiVersion: v2
     appVersion: 1.2.3
-    created: "2025-12-19T03:45:19.225027017Z"
+    created: "2026-02-01T19:09:04.037844807Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 19edbdfa5268b415d30cfce2415c5113aa1d4a163e00a0786a2018c15df27d60
@@ -47,7 +69,7 @@ entries:
     version: 1.2.3
   - apiVersion: v2
     appVersion: 1.2.2
-    created: "2025-12-19T03:45:19.22447318Z"
+    created: "2026-02-01T19:09:04.037070352Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 40682bff35b1e820f1d146cc68cbe1b1045baee64f21706b8222bab607730782
@@ -69,7 +91,7 @@ entries:
     version: 1.2.2
   - apiVersion: v2
     appVersion: 1.2.1
-    created: "2025-12-19T03:45:19.223945893Z"
+    created: "2026-02-01T19:09:04.036559756Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 80360164a11092216dbfb2dd04137c18d75989df093803bb171fe6ae3c4d766e
@@ -91,7 +113,7 @@ entries:
     version: 1.2.1
   - apiVersion: v2
     appVersion: 1.2.0
-    created: "2025-12-19T03:45:19.222646154Z"
+    created: "2026-02-01T19:09:04.035994147Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 08cb850eadca6ed03a9a2fa6879b1f6662e6af5ca56f140aa1d5701c595fa526
@@ -113,7 +135,7 @@ entries:
     version: 1.2.0
   - apiVersion: v2
     appVersion: 1.1.5
-    created: "2025-12-19T03:45:19.222022796Z"
+    created: "2026-02-01T19:09:04.035409982Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 827a7328fc9cba1bfa3420d64d9d09b76447a1d73f1d702ca4c0aec32aa38721
@@ -135,7 +157,7 @@ entries:
     version: 1.1.5
   - apiVersion: v2
     appVersion: 1.1.0
-    created: "2025-12-19T03:45:19.221482965Z"
+    created: "2026-02-01T19:09:04.034881893Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: b2e81308750dc6b2f1560bfdaaea4a3f47cf95828ea937aa4f2fb147ab8eff2b
@@ -155,4 +177,4 @@ entries:
     urls:
     - https://guided-traffic.github.io/internal-secrets-operator/internal-secrets-operator-1.1.0.tgz
     version: 1.1.0
-generated: "2025-12-19T03:45:19.220819009Z"
+generated: "2026-02-01T19:09:04.034269135Z"

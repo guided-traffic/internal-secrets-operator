@@ -28,6 +28,10 @@ A Kubernetes operator that automatically generates random secret values. Use it 
 - 🚫 **Conflict Detection** - Prevents conflicting features (`autogenerate` + `replicate-from`)
 - ✨ **Flexible Combinations** - Generate secrets in one namespace and share with others
 
+## Requirements
+
+- Kubernetes 1.25+
+
 ## Quick Start
 
 ### Installation

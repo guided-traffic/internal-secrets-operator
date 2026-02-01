@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -2086,5 +2087,141 @@ func TestSecretReplicatorReconciler_PullReplicationGetSourceError(t *testing.T) 
 	_, err := reconciler.Reconcile(context.Background(), req)
 	if err == nil {
 		t.Error("Expected error from Reconcile when getting source secret fails (not NotFound)")
+	}
+}
+func TestSecretReplicatorReconciler_PushToNonexistentNamespace(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	sourceSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "push-nonexistent-ns",
+			Namespace: "production",
+			Annotations: map[string]string{
+				replicator.AnnotationReplicateTo: "nonexistent-namespace",
+			},
+		},
+		Data: map[string][]byte{
+			"key": []byte("value"),
+		},
+	}
+
+	// Create a client that returns NotFound error on Create (simulating non-existent namespace)
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(sourceSecret).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				if secret, ok := obj.(*corev1.Secret); ok && secret.Namespace == "nonexistent-namespace" {
+					// Simulate "namespace not found" error
+					return apierrors.NewNotFound(corev1.Resource("namespaces"), "nonexistent-namespace")
+				}
+				return client.Create(ctx, obj, opts...)
+			},
+		}).
+		Build()
+
+	recorder := record.NewFakeRecorder(10)
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: recorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: sourceSecret.Namespace,
+			Name:      sourceSecret.Name,
+		},
+	}
+
+	// Should not return an error even when namespace doesn't exist
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Errorf("Reconcile() error = %v, expected nil (non-existent namespace should be handled gracefully)", err)
+	}
+
+	// Check for warning event about the failed push
+	select {
+	case event := <-recorder.Events:
+		if !strings.Contains(event, "Warning") || !strings.Contains(event, "PushFailed") {
+			t.Errorf("Expected warning event about push failure, got: %s", event)
+		}
+		// Event should contain "namespace not found" reason
+		if !strings.Contains(event, "not found") {
+			t.Errorf("Expected event message to contain 'not found', got: %s", event)
+		}
+	default:
+		t.Error("Expected a warning event for failed push to non-existent namespace")
+	}
+}
+
+func TestSecretReplicatorReconciler_PushPermissionDenied(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	sourceSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "push-permission-denied",
+			Namespace: "production",
+			Annotations: map[string]string{
+				replicator.AnnotationReplicateTo: "restricted-namespace",
+			},
+		},
+		Data: map[string][]byte{
+			"key": []byte("value"),
+		},
+	}
+
+	// Create a client that returns Forbidden error on Create
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(sourceSecret).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				if secret, ok := obj.(*corev1.Secret); ok && secret.Namespace == "restricted-namespace" {
+					return apierrors.NewForbidden(corev1.Resource("secrets"), "test-secret", fmt.Errorf("permission denied"))
+				}
+				return client.Create(ctx, obj, opts...)
+			},
+		}).
+		Build()
+
+	recorder := record.NewFakeRecorder(10)
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: recorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: sourceSecret.Namespace,
+			Name:      sourceSecret.Name,
+		},
+	}
+
+	// Should not return an error even when permission denied
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Errorf("Reconcile() error = %v, expected nil (permission denied should be handled gracefully)", err)
+	}
+
+	// Check for warning event about the failed push
+	select {
+	case event := <-recorder.Events:
+		if !strings.Contains(event, "Warning") || !strings.Contains(event, "PushFailed") {
+			t.Errorf("Expected warning event about push failure, got: %s", event)
+		}
+		// Event should contain "permission denied" reason
+		if !strings.Contains(event, "permission denied") {
+			t.Errorf("Expected event message to contain 'permission denied', got: %s", event)
+		}
+	default:
+		t.Error("Expected a warning event for failed push due to permission denied")
 	}
 }

@@ -186,17 +186,15 @@ func (r *SecretReplicatorReconciler) handlePushReplication(ctx context.Context, 
 
 	// Push to each target namespace
 	for _, targetNS := range targetNamespaces {
-		if err := r.pushToNamespace(ctx, sourceSecret, targetNS, sourceRef); err != nil {
-			log.Error(err, "failed to push to namespace", "targetNamespace", targetNS)
-			// Continue with other namespaces even if one fails
-		}
+		r.pushToNamespace(ctx, sourceSecret, targetNS, sourceRef)
+		// Always continue with other namespaces even if one fails
 	}
 
 	return ctrl.Result{}, nil
 }
 
 // pushToNamespace pushes a Secret to a target namespace
-func (r *SecretReplicatorReconciler) pushToNamespace(ctx context.Context, sourceSecret *corev1.Secret, targetNS string, sourceRef string) error {
+func (r *SecretReplicatorReconciler) pushToNamespace(ctx context.Context, sourceSecret *corev1.Secret, targetNS string, sourceRef string) {
 	log := log.FromContext(ctx)
 
 	// Check if target Secret already exists
@@ -209,34 +207,69 @@ func (r *SecretReplicatorReconciler) pushToNamespace(ctx context.Context, source
 			// Target doesn't exist - create it
 			targetSecret = replicator.CreateReplicatedSecret(sourceSecret, targetNS)
 			if err := r.Create(ctx, targetSecret); err != nil {
+				// Determine if this is an expected error (namespace not found, permission denied, etc.)
+				reasonMsg := r.getHumanReadableErrorReason(err)
 				r.EventRecorder.Event(sourceSecret, corev1.EventTypeWarning, EventReasonPushFailed,
-					fmt.Sprintf("Failed to create Secret in namespace %s: %v", targetNS, err))
-				return fmt.Errorf("failed to create target Secret: %w", err)
+					fmt.Sprintf("Could not replicate to namespace %s: %s", targetNS, reasonMsg))
+				log.V(1).Info("Could not replicate to namespace", "targetNamespace", targetNS, "reason", reasonMsg)
+				return
 			}
 			log.Info("Created replicated Secret", "targetNamespace", targetNS, "name", targetSecret.Name)
-			return nil
+			return
 		}
-		return fmt.Errorf("failed to get target Secret: %w", err)
+
+		// Unexpected error reading target
+		reasonMsg := r.getHumanReadableErrorReason(err)
+		r.EventRecorder.Event(sourceSecret, corev1.EventTypeWarning, EventReasonPushFailed,
+			fmt.Sprintf("Could not access namespace %s: %s", targetNS, reasonMsg))
+		log.V(1).Info("Could not access namespace", "targetNamespace", targetNS, "reason", reasonMsg)
+		return
 	}
 
 	// Target exists - check if we own it
 	if !replicator.IsOwnedByUs(targetSecret, sourceRef) {
 		r.EventRecorder.Event(sourceSecret, corev1.EventTypeWarning, EventReasonPushFailed,
-			fmt.Sprintf("Secret %s/%s already exists and is not owned by this replication (no replicated-from annotation)", targetNS, sourceSecret.Name))
-		log.Info("Target Secret exists but is not owned by us", "targetNamespace", targetNS, "name", sourceSecret.Name)
-		return nil // Don't return error - just skip this target
+			fmt.Sprintf("Secret already exists in namespace %s and is not managed by this replication", targetNS))
+		log.V(1).Info("Target Secret exists but is not owned by us", "targetNamespace", targetNS, "name", sourceSecret.Name)
+		return
 	}
 
 	// We own it - update it
 	replicator.ReplicateSecret(sourceSecret, targetSecret)
 	if err := r.Update(ctx, targetSecret); err != nil {
+		reasonMsg := r.getHumanReadableErrorReason(err)
 		r.EventRecorder.Event(sourceSecret, corev1.EventTypeWarning, EventReasonPushFailed,
-			fmt.Sprintf("Failed to update Secret in namespace %s: %v", targetNS, err))
-		return fmt.Errorf("failed to update target Secret: %w", err)
+			fmt.Sprintf("Could not update Secret in namespace %s: %s", targetNS, reasonMsg))
+		log.V(1).Info("Could not update Secret in namespace", "targetNamespace", targetNS, "reason", reasonMsg)
+		return
 	}
 
 	log.Info("Updated replicated Secret", "targetNamespace", targetNS, "name", targetSecret.Name)
-	return nil
+}
+
+// getHumanReadableErrorReason converts API errors to human-readable reasons
+func (r *SecretReplicatorReconciler) getHumanReadableErrorReason(err error) string {
+	if apierrors.IsNotFound(err) {
+		return "namespace not found"
+	}
+	if apierrors.IsForbidden(err) {
+		return "permission denied"
+	}
+	if apierrors.IsUnauthorized(err) {
+		return "authentication failed"
+	}
+	if apierrors.IsInvalid(err) {
+		return "invalid resource"
+	}
+	if apierrors.IsServiceUnavailable(err) {
+		return "service temporarily unavailable"
+	}
+	// Return first 100 chars of error message for unexpected errors
+	errMsg := err.Error()
+	if len(errMsg) > 100 {
+		return errMsg[:100] + "..."
+	}
+	return errMsg
 }
 
 // handleDeletion handles cleanup when a source Secret with replicate-to is deleted

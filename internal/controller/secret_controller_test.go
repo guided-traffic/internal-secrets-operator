@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -46,6 +45,29 @@ type MockClock struct {
 // Now returns the mocked current time
 func (m *MockClock) Now() time.Time {
 	return m.currentTime
+}
+
+// TestEventRecorder is a simple mock for events.EventRecorder used in tests
+type TestEventRecorder struct {
+	Events chan string
+}
+
+// Eventf records an event with formatted message (implements events.EventRecorder)
+func (t *TestEventRecorder) Eventf(regarding runtime.Object, related runtime.Object, eventtype, reason, action, note string, args ...interface{}) {
+	msg := fmt.Sprintf(note, args...)
+	event := fmt.Sprintf("%s %s: %s", eventtype, reason, msg)
+	select {
+	case t.Events <- event:
+	default:
+		// Channel full, drop event
+	}
+}
+
+// NewTestEventRecorder creates a new TestEventRecorder for testing
+func NewTestEventRecorder(bufferSize int) *TestEventRecorder {
+	return &TestEventRecorder{
+		Events: make(chan string, bufferSize),
+	}
 }
 
 func TestParseFields(t *testing.T) {
@@ -447,7 +469,7 @@ func TestReconcile(t *testing.T) {
 				Build()
 
 			gen := generator.NewSecretGenerator()
-			fakeRecorder := record.NewFakeRecorder(10)
+			fakeRecorder := NewTestEventRecorder(10)
 
 			reconciler := &SecretReconciler{
 				Client:        fakeClient,
@@ -503,7 +525,7 @@ func TestReconcileSecretNotFound(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReconciler{
 		Client:        fakeClient,
@@ -552,7 +574,7 @@ func TestReconcileEmitsSuccessEvent(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReconciler{
 		Client:        fakeClient,
@@ -608,7 +630,7 @@ func TestReconcileEmitsWarningEventOnError(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReconciler{
 		Client:        fakeClient,
@@ -667,7 +689,7 @@ func TestReconcileNoEventWhenNoChanges(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReconciler{
 		Client:        fakeClient,
@@ -865,7 +887,7 @@ func TestReconcileWithRotation(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	cfg := config.NewDefaultConfig()
 	cfg.Rotation.CreateEvents = true
@@ -954,7 +976,7 @@ func TestReconcileWithRotationNotYetDue(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReconciler{
 		Client:        fakeClient,
@@ -1032,7 +1054,7 @@ func TestReconcileRotationBelowMinInterval(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReconciler{
 		Client:        fakeClient,
@@ -1110,7 +1132,7 @@ func TestReconcileWithFieldSpecificRotation(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	cfg := config.NewDefaultConfig()
 	cfg.Rotation.CreateEvents = true
@@ -1178,7 +1200,7 @@ func TestReconcileInitialGenerationWithBelowMinInterval(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	// Use config with 5s minInterval (like E2E test)
 	cfg := config.NewDefaultConfig()
@@ -1565,7 +1587,7 @@ func TestReconcileWithCustomCharset(t *testing.T) {
 				Build()
 
 			gen := generator.NewSecretGenerator()
-			fakeRecorder := record.NewFakeRecorder(10)
+			fakeRecorder := NewTestEventRecorder(10)
 			cfg := config.NewDefaultConfig()
 
 			reconciler := &SecretReconciler{
@@ -1800,7 +1822,7 @@ func TestUpdateSecretAndEmitEventsUpdateError(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReconciler{
 		Client:        fakeClient,
@@ -1840,7 +1862,7 @@ func TestReconcileGetError(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReconciler{
 		Client:        fakeClient,
@@ -1896,7 +1918,7 @@ func TestReconcileRotationWithCreateEventsEnabled(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 	cfg := config.NewDefaultConfig()
 	cfg.Rotation.MinInterval = config.Duration(1 * time.Minute)
 	cfg.Rotation.CreateEvents = true // Enable rotation events
@@ -1965,7 +1987,7 @@ func TestReconcileRotationWithCreateEventsDisabled(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 	cfg := config.NewDefaultConfig()
 	cfg.Rotation.MinInterval = config.Duration(1 * time.Minute)
 	cfg.Rotation.CreateEvents = false // Disable rotation events (default)
@@ -2078,7 +2100,7 @@ func TestReconcileWithNilSecretAnnotations(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReconciler{
 		Client:        fakeClient,
@@ -2125,7 +2147,7 @@ func TestReconcileWithNilSecretData(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReconciler{
 		Client:        fakeClient,

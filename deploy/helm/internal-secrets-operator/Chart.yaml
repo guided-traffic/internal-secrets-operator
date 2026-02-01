@@ -4,6 +4,7 @@ description: A Kubernetes controller that automatically generates random secret 
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
+kubeVersion: ">= 1.25.0"
 keywords:
   - kubernetes
   - secrets

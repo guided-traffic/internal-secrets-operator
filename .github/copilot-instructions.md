@@ -126,12 +126,18 @@ rules:
 - apiGroups: [""]
   resources: ["secrets"]
   verbs: ["get", "list", "watch", "update", "patch", "create", "delete"]
+# Events permissions for recording events (both core and events.k8s.io APIs)
 - apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
+- apiGroups: ["events.k8s.io"]
   resources: ["events"]
   verbs: ["create", "patch"]
 ```
 
-**Note:** `create` and `delete` verbs are required for secret replication features.
+**Notes:**
+- `create` and `delete` verbs for secrets are required for secret replication features.
+- Events must be allowed in both `""` (core) and `events.k8s.io` API groups, as controller-runtime uses `events.k8s.io` by default.
 
 ### Defaults
 

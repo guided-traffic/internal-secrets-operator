@@ -86,6 +86,13 @@ func TestRBACPermissions(t *testing.T) {
 				Resources: []string{"secrets"},
 				Verbs:     []string{"get", "list", "watch", "update", "patch", "create", "delete"},
 			},
+			// Core Events API (for leader election)
+			{
+				APIGroups: []string{""},
+				Resources: []string{"events"},
+				Verbs:     []string{"create", "patch"},
+			},
+			// events.k8s.io API (for controller-runtime Eventf)
 			{
 				APIGroups: []string{"events.k8s.io"},
 				Resources: []string{"events"},
@@ -233,6 +240,40 @@ func TestRBACPermissions(t *testing.T) {
 			t.Errorf("CRITICAL: failed to create event using events.k8s.io API: %v\n"+
 				"This means the operator will fail to create events in production!\n"+
 				"Check that RBAC rules include: apiGroups: [\"events.k8s.io\"], resources: [\"events\"], verbs: [\"create\", \"patch\"]",
+				err)
+		}
+	})
+
+	t.Run("Event creation with core API (for leader election)", func(t *testing.T) {
+		// Leader election in controller-runtime uses the core Events API, not events.k8s.io
+		// If this fails, the operator will get "forbidden" errors during leader election
+
+		coreEvent := &corev1.Event{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test-core-event-",
+				Namespace:    ns.Name,
+			},
+			InvolvedObject: corev1.ObjectReference{
+				APIVersion: "v1",
+				Kind:       "Secret",
+				Name:       "test-secret",
+				Namespace:  ns.Name,
+			},
+			Reason:  "LeaderElection",
+			Message: "Testing RBAC permissions for core events API (leader election)",
+			Type:    "Normal",
+			Source: corev1.EventSource{
+				Component: "test-operator",
+			},
+			FirstTimestamp: metav1.Now(),
+			LastTimestamp:  metav1.Now(),
+		}
+
+		_, err := impersonatedClientset.CoreV1().Events(ns.Name).Create(ctx, coreEvent, metav1.CreateOptions{})
+		if err != nil {
+			t.Errorf("CRITICAL: failed to create event using core API: %v\n"+
+				"This means leader election will fail in production!\n"+
+				"Check that RBAC rules include: apiGroups: [\"\"], resources: [\"events\"], verbs: [\"create\", \"patch\"]",
 				err)
 		}
 	})
@@ -655,6 +696,41 @@ func TestRBACFromRoleYAML(t *testing.T) {
 				"The operator will fail to create events in production!\n"+
 				"Add this rule to config/rbac/role.yaml:\n"+
 				"  - apiGroups: [\"events.k8s.io\"]\n"+
+				"    resources: [\"events\"]\n"+
+				"    verbs: [\"create\", \"patch\"]", err)
+		}
+	})
+
+	t.Run("create event (core API for leader election)", func(t *testing.T) {
+		// Leader election in controller-runtime uses the core Events API
+		// If this fails, leader election will fail in production
+
+		coreEvent := &corev1.Event{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "test-core-event-",
+				Namespace:    ns.Name,
+			},
+			InvolvedObject: corev1.ObjectReference{
+				APIVersion: "v1",
+				Kind:       "Secret",
+				Name:       "event-ref",
+				Namespace:  ns.Name,
+			},
+			Reason:  "LeaderElection",
+			Message: "Testing core events API permission for leader election",
+			Type:    "Normal",
+			Source: corev1.EventSource{
+				Component: "test-operator",
+			},
+			FirstTimestamp: metav1.Now(),
+			LastTimestamp:  metav1.Now(),
+		}
+		_, err := impersonatedClientset.CoreV1().Events(ns.Name).Create(ctx, coreEvent, metav1.CreateOptions{})
+		if err != nil {
+			t.Errorf("CRITICAL: config/rbac/role.yaml does not allow creating events via core API: %v\n"+
+				"Leader election will fail in production!\n"+
+				"Add this rule to config/rbac/role.yaml:\n"+
+				"  - apiGroups: [\"\"]\n"+
 				"    resources: [\"events\"]\n"+
 				"    verbs: [\"create\", \"patch\"]", err)
 		}

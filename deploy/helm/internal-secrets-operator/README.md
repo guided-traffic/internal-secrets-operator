@@ -51,6 +51,66 @@ The `config` section is written directly to a ConfigMap and mounted as the opera
 
 > **Note:** At least one of `uppercase`, `lowercase`, `numbers`, or `specialChars` must be `true`.
 
+### Rotation Configuration
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `config.rotation.minInterval` | string | `"5m"` | Minimum allowed rotation interval (prevents tight loops) |
+| `config.rotation.createEvents` | bool | `false` | Create Normal Events when secrets are rotated |
+
+### Maintenance Windows
+
+Maintenance windows allow you to restrict secret rotation to specific time periods. This is useful to avoid rotations during peak hours.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `config.rotation.maintenanceWindows.enabled` | bool | `false` | Enable maintenance windows for rotation |
+| `config.rotation.maintenanceWindows.windows` | list | `[]` | List of maintenance window definitions |
+
+Each window in the `windows` list supports:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `name` | string | Name of the window (for logging) |
+| `days` | list | Days when rotation is allowed: `sunday`, `monday`, `tuesday`, `wednesday`, `thursday`, `friday`, `saturday` |
+| `startTime` | string | Start time in `HH:MM` format (24-hour) |
+| `endTime` | string | End time in `HH:MM` format (24-hour). Must be after `startTime` |
+| `timezone` | string | IANA timezone (e.g., `Europe/Berlin`, `UTC`, `America/New_York`) |
+
+**Example Configuration:**
+
+```yaml
+config:
+  rotation:
+    maintenanceWindows:
+      enabled: true
+      windows:
+        - name: "weekend-night"
+          days: ["saturday", "sunday"]
+          startTime: "03:00"
+          endTime: "05:00"
+          timezone: "Europe/Berlin"
+        - name: "weekday-maintenance"
+          days: ["wednesday"]
+          startTime: "02:00"
+          endTime: "04:00"
+          timezone: "UTC"
+```
+
+**Behavior:**
+- When maintenance windows are enabled, rotation only occurs during the defined time windows
+- Outside of windows, a Normal Event is created indicating rotation is deferred
+- The controller automatically requeues to check again when the next window starts
+- Initial secret generation (when a secret has no value yet) is NOT affected by maintenance windows
+- If `endTime` is before or equal to `startTime`, the operator will fail to start (CrashLoop)
+
+### Feature Toggles
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `config.features.secretGenerator` | bool | `true` | Enable automatic secret value generation |
+| `config.features.secretReplicator` | bool | `true` | Enable secret replication across namespaces |
+
 ### Service Account
 
 | Key | Type | Default | Description |

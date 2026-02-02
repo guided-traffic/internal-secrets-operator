@@ -48,6 +48,25 @@ config:
     # Create Normal Events when secrets are rotated
     # Note: Enabling this can create many Events for frequently rotating secrets
     createEvents: false
+    # Maintenance windows for secret rotation
+    # When enabled, rotations only occur during defined time windows
+    maintenanceWindows:
+      # Enable maintenance windows for rotation
+      enabled: false
+      # List of maintenance windows
+      # Each window defines when rotation is allowed
+      windows: []
+        # Example configuration:
+        # - name: "weekend-night"
+        #   days: ["saturday", "sunday"]
+        #   startTime: "03:00"
+        #   endTime: "05:00"
+        #   timezone: "Europe/Berlin"
+        # - name: "weekday-maintenance"
+        #   days: ["wednesday"]
+        #   startTime: "02:00"
+        #   endTime: "04:00"
+        #   timezone: "UTC"
   # Feature toggles (enable/disable operator features)
   features:
     # Enable automatic secret value generation

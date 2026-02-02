@@ -10,7 +10,8 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "list", "watch", "update", "patch", "create", "delete"]
-  - apiGroups: [""]
+  # Events permissions for recording events (controller-runtime uses events.k8s.io)
+  - apiGroups: ["events.k8s.io"]
     resources: ["events"]
     verbs: ["create", "patch"]
   - apiGroups: ["coordination.k8s.io"]

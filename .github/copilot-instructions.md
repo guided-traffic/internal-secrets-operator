@@ -126,12 +126,15 @@ rules:
 - apiGroups: [""]
   resources: ["secrets"]
   verbs: ["get", "list", "watch", "update", "patch", "create", "delete"]
-- apiGroups: [""]
+# Events permissions for recording events (controller-runtime uses events.k8s.io)
+- apiGroups: ["events.k8s.io"]
   resources: ["events"]
   verbs: ["create", "patch"]
 ```
 
-**Note:** `create` and `delete` verbs are required for secret replication features.
+**Notes:**
+- `create` and `delete` verbs for secrets are required for secret replication features.
+- Events use the `events.k8s.io` API group (controller-runtime default, requires Kubernetes 1.19+).
 
 ### Defaults
 

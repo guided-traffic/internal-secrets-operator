@@ -303,6 +303,11 @@ config:
     # Create Normal Events when secrets are rotated
     # Useful for auditing, but may create many events with frequent rotations
     createEvents: false
+
+    # Maintenance windows for secret rotation
+    maintenanceWindows:
+      enabled: false
+      windows: []
 ```
 
 Or via command line:
@@ -311,6 +316,115 @@ Or via command line:
 helm install internal-secrets-operator internal-secrets-operator/internal-secrets-operator \
   --set config.rotation.minInterval=10m \
   --set config.rotation.createEvents=true
+```
+
+## Maintenance Windows
+
+Maintenance windows allow you to restrict secret rotation to specific time periods. This is useful for:
+
+- **Avoiding disruptions** - Rotate secrets during low-traffic periods
+- **Compliance requirements** - Restrict changes to approved maintenance windows
+- **Coordinated updates** - Align rotation with deployment schedules
+
+### How Maintenance Windows Work
+
+1. When rotation is due, the operator checks if the current time is within any maintenance window
+2. If inside a window: Rotation proceeds immediately
+3. If outside all windows: Rotation is **deferred** until the next window starts
+4. A Normal Event is created to inform you that rotation was deferred
+5. The controller automatically reschedules reconciliation for the next window start
+
+> **Note:** Initial secret generation (when a field has no value) is **NOT affected** by maintenance windows. Only rotation of existing values is restricted.
+
+### Maintenance Window Configuration
+
+Configure via Helm values:
+
+```yaml
+config:
+  rotation:
+    maintenanceWindows:
+      enabled: true
+      windows:
+        - name: "weekend-night"
+          days: ["saturday", "sunday"]
+          startTime: "03:00"
+          endTime: "05:00"
+          timezone: "Europe/Berlin"
+        - name: "weekday-maintenance"
+          days: ["wednesday"]
+          startTime: "02:00"
+          endTime: "04:00"
+          timezone: "UTC"
+```
+
+### Window Configuration Options
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `name` | Descriptive name for logging | `"weekend-night"` |
+| `days` | List of weekdays when the window is active | `["saturday", "sunday"]` |
+| `startTime` | Start time in 24-hour format (HH:MM) | `"03:00"` |
+| `endTime` | End time in 24-hour format (HH:MM) | `"05:00"` |
+| `timezone` | IANA timezone identifier | `"Europe/Berlin"` |
+
+#### Supported Day Names
+
+`sunday`, `monday`, `tuesday`, `wednesday`, `thursday`, `friday`, `saturday` (case-insensitive)
+
+#### Supported Timezones
+
+Any IANA timezone is supported, for example:
+- `UTC`
+- `Europe/Berlin`, `Europe/London`, `Europe/Paris`
+- `America/New_York`, `America/Los_Angeles`
+- `Asia/Tokyo`, `Asia/Shanghai`
+- `Australia/Sydney`
+
+### Validation Rules
+
+The operator validates maintenance window configuration at startup:
+
+| Rule | Invalid Example | Error |
+|------|-----------------|-------|
+| `endTime` must be after `startTime` | `startTime: "05:00"`, `endTime: "03:00"` | Operator fails to start (CrashLoop) |
+| At least one day required | `days: []` | Operator fails to start |
+| Valid timezone required | `timezone: "Invalid/Zone"` | Operator fails to start |
+| Valid time format | `startTime: "25:00"` | Operator fails to start |
+
+### Example: Weekend-Only Rotation
+
+```yaml
+config:
+  rotation:
+    maintenanceWindows:
+      enabled: true
+      windows:
+        - name: "weekend-night"
+          days: ["saturday", "sunday"]
+          startTime: "03:00"
+          endTime: "05:00"
+          timezone: "Europe/Berlin"
+```
+
+With this configuration, a secret with `rotate: "24h"` will:
+- Wait until Saturday or Sunday between 03:00-05:00 Berlin time
+- Rotate during the window
+- Wait again for the next window if rotation is due outside the window
+
+### Viewing Deferred Rotations
+
+When rotation is deferred, a Normal Event is created:
+
+```bash
+kubectl describe secret rotating-secret
+```
+
+```
+Events:
+  Type    Reason           Age   From                        Message
+  ----    ------           ----  ----                        -------
+  Normal  RotationDeferred 5s    internal-secrets-operator   Rotation for field "password" deferred until next maintenance window at 2026-02-07T03:00:00Z (window: weekend-night)
 ```
 
 ### Application Considerations

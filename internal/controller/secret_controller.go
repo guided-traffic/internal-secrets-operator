@@ -444,12 +444,12 @@ func (r *SecretReconciler) updateSecretAndEmitEvents(
 func (r *SecretReconciler) emitSuccessEvent(secret *corev1.Secret, rotated bool, logger logr.Logger) {
 	if rotated {
 		if r.Config.Rotation.CreateEvents {
-			r.EventRecorder.Eventf(secret, nil, corev1.EventTypeNormal, EventReasonRotationSucceeded, "",
+			r.EventRecorder.Eventf(secret, nil, corev1.EventTypeNormal, EventReasonRotationSucceeded, "Rotate",
 				"Successfully rotated values for secret fields")
 		}
 		logger.Info("Successfully rotated Secret values")
 	} else {
-		r.EventRecorder.Eventf(secret, nil, corev1.EventTypeNormal, EventReasonGenerationSucceeded, "",
+		r.EventRecorder.Eventf(secret, nil, corev1.EventTypeNormal, EventReasonGenerationSucceeded, "Generate",
 			"Successfully generated values for secret fields")
 		logger.Info("Successfully updated Secret with generated values")
 	}
@@ -542,7 +542,7 @@ func (r *SecretReconciler) generateFieldValue(
 	// Note: We still allow initial generation even if rotation interval is invalid
 	if rotationCheck.err != nil {
 		logger.Error(nil, rotationCheck.errMsg, "field", field)
-		r.EventRecorder.Eventf(secret, nil, corev1.EventTypeWarning, EventReasonRotationFailed, "", rotationCheck.errMsg)
+		r.EventRecorder.Eventf(secret, nil, corev1.EventTypeWarning, EventReasonRotationFailed, "Rotate", rotationCheck.errMsg)
 		// If field exists, skip it (invalid rotation config prevents rotation)
 		// If field doesn't exist, we still generate the initial value
 		if fieldExists {
@@ -573,7 +573,7 @@ func (r *SecretReconciler) generateFieldValue(
 			result.errMsg = fmt.Sprintf("Invalid charset configuration for field %q: %v", field, charsetErr)
 			result.skipRest = true
 			logger.Error(charsetErr, "Invalid charset configuration", "field", field)
-			r.EventRecorder.Eventf(secret, nil, corev1.EventTypeWarning, EventReasonGenerationFailed, "", result.errMsg)
+			r.EventRecorder.Eventf(secret, nil, corev1.EventTypeWarning, EventReasonGenerationFailed, "Generate", result.errMsg)
 			return result
 		}
 		value, err = r.Generator.GenerateWithCharset(genType, length, charset)
@@ -587,7 +587,7 @@ func (r *SecretReconciler) generateFieldValue(
 		result.errMsg = fmt.Sprintf("Failed to generate value for field %q: %v", field, err)
 		result.skipRest = true
 		logger.Error(err, "Failed to generate value", "field", field, "type", genType)
-		r.EventRecorder.Eventf(secret, nil, corev1.EventTypeWarning, EventReasonGenerationFailed, "", result.errMsg)
+		r.EventRecorder.Eventf(secret, nil, corev1.EventTypeWarning, EventReasonGenerationFailed, "Generate", result.errMsg)
 		return result
 	}
 

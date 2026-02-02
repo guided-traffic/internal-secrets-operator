@@ -29,6 +29,7 @@ import (
 
 	"go.uber.org/zap/zapcore"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -82,6 +83,13 @@ func TestMain(m *testing.M) {
 	err = corev1.AddToScheme(scheme.Scheme)
 	if err != nil {
 		logf.Log.Error(err, "failed to add corev1 to scheme")
+		os.Exit(1)
+	}
+
+	// Add rbacv1 to scheme (needed for RBAC tests)
+	err = rbacv1.AddToScheme(scheme.Scheme)
+	if err != nil {
+		logf.Log.Error(err, "failed to add rbacv1 to scheme")
 		os.Exit(1)
 	}
 

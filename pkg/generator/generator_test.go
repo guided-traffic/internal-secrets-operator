@@ -19,27 +19,22 @@ package generator
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewSecretGenerator(t *testing.T) {
 	gen := NewSecretGenerator()
-	if gen == nil {
-		t.Fatal("NewSecretGenerator returned nil")
-	}
-	if gen.defaultCharset != AlphanumericCharset {
-		t.Errorf("expected charset %q, got %q", AlphanumericCharset, gen.defaultCharset)
-	}
+	require.NotNil(t, gen, "NewSecretGenerator returned nil")
+	assert.Equal(t, AlphanumericCharset, gen.defaultCharset)
 }
 
 func TestNewSecretGeneratorWithCharset(t *testing.T) {
 	customCharset := "abc123"
 	gen := NewSecretGeneratorWithCharset(customCharset)
-	if gen == nil {
-		t.Fatal("NewSecretGeneratorWithCharset returned nil")
-	}
-	if gen.defaultCharset != customCharset {
-		t.Errorf("expected charset %q, got %q", customCharset, gen.defaultCharset)
-	}
+	require.NotNil(t, gen, "NewSecretGeneratorWithCharset returned nil")
+	assert.Equal(t, customCharset, gen.defaultCharset)
 }
 
 func TestGenerateString(t *testing.T) {

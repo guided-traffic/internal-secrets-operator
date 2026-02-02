@@ -471,9 +471,9 @@ type rotationCheckResult struct {
 	needsRotation     bool
 	rotationInterval  time.Duration
 	timeUntilRotation *time.Duration
-	deferred          bool   // true if rotation was deferred due to maintenance window
+	deferred          bool       // true if rotation was deferred due to maintenance window
 	deferredUntil     *time.Time // when the next maintenance window starts
-	deferredWindow    string // name of the window to defer to (for logging)
+	deferredWindow    string     // name of the window to defer to (for logging)
 	err               error
 	errMsg            string
 }

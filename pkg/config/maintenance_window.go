@@ -242,7 +242,7 @@ func (w *MaintenanceWindow) NextStart(t time.Time) time.Time {
 	endHour, endMinute, _ := ParseTime(w.EndTime)
 
 	// Parse the days
-	var windowDays []time.Weekday
+	windowDays := make([]time.Weekday, 0, len(w.Days))
 	for _, day := range w.Days {
 		weekday, err := ParseDay(day)
 		if err != nil {

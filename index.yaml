@@ -2,8 +2,31 @@ apiVersion: v1
 entries:
   internal-secrets-operator:
   - apiVersion: v2
+    appVersion: 1.3.0
+    created: "2026-02-02T19:03:05.723760327Z"
+    description: A Kubernetes controller that automatically generates random secret
+      values
+    digest: 7a24e7a3129a83db2d3c6c5cd9bdf560b5c29f18b13f331865c6f56d415893d5
+    home: https://github.com/guided-traffic/internal-secrets-operator
+    keywords:
+    - kubernetes
+    - secrets
+    - operator
+    - controller
+    kubeVersion: '>= 1.25.0'
+    maintainers:
+    - name: guided-traffic
+      url: https://github.com/guided-traffic
+    name: internal-secrets-operator
+    sources:
+    - https://github.com/guided-traffic/internal-secrets-operator
+    type: application
+    urls:
+    - https://guided-traffic.github.io/internal-secrets-operator/internal-secrets-operator-1.3.0.tgz
+    version: 1.3.0
+  - apiVersion: v2
     appVersion: 1.2.11
-    created: "2026-02-02T10:12:30.71426171Z"
+    created: "2026-02-02T19:03:05.718361789Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: e30f875b91fc11f2e3fa22beaaaed8a51c6f8a17bd731cbfea6bd56a4e6834b5
@@ -26,7 +49,7 @@ entries:
     version: 1.2.11
   - apiVersion: v2
     appVersion: 1.2.10
-    created: "2026-02-02T10:12:30.713479262Z"
+    created: "2026-02-02T19:03:05.717897369Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 8e936517ca665b2933bc3536780f6dcca18e3cc88c6b49181ec55a03c09e2928
@@ -49,7 +72,7 @@ entries:
     version: 1.2.10
   - apiVersion: v2
     appVersion: 1.2.9
-    created: "2026-02-02T10:12:30.720031583Z"
+    created: "2026-02-02T19:03:05.722977628Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 96b23a667dab0745c073910e9e891546abf0e2afc48d459779ab2d92dfe847e9
@@ -72,7 +95,7 @@ entries:
     version: 1.2.9
   - apiVersion: v2
     appVersion: 1.2.8
-    created: "2026-02-02T10:12:30.719203577Z"
+    created: "2026-02-02T19:03:05.722485227Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 77a0d0bb60a26cae704744ac348aecbc029fefb288757d47f3b0d37abf46c15d
@@ -95,7 +118,7 @@ entries:
     version: 1.2.8
   - apiVersion: v2
     appVersion: 1.2.7
-    created: "2026-02-02T10:12:30.718728239Z"
+    created: "2026-02-02T19:03:05.722007162Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 92c1a2df27578d545ef7b061f1f1835cd48a5d3cfcdbe8bbff0c3988449a9c79
@@ -118,7 +141,7 @@ entries:
     version: 1.2.7
   - apiVersion: v2
     appVersion: 1.2.6
-    created: "2026-02-02T10:12:30.718125338Z"
+    created: "2026-02-02T19:03:05.721560978Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: a5f3b8bacbea7ff1b5a60262c4551bd49f99cf884a327c726a8074927dc070fd
@@ -140,7 +163,7 @@ entries:
     version: 1.2.6
   - apiVersion: v2
     appVersion: 1.2.5
-    created: "2026-02-02T10:12:30.717279408Z"
+    created: "2026-02-02T19:03:05.721113372Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: f39f554813c4a9f35fb0a7f344b6d7aaa07d2a63b6b900a96634c609026606e5
@@ -162,7 +185,7 @@ entries:
     version: 1.2.5
   - apiVersion: v2
     appVersion: 1.2.4
-    created: "2026-02-02T10:12:30.716568655Z"
+    created: "2026-02-02T19:03:05.720418198Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 6c9bb9a9a97e443892a3fd9004db897b62c7c8fcf47cc1bc988c2a40cd9bcbef
@@ -184,7 +207,7 @@ entries:
     version: 1.2.4
   - apiVersion: v2
     appVersion: 1.2.3
-    created: "2026-02-02T10:12:30.715880523Z"
+    created: "2026-02-02T19:03:05.71965809Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 19edbdfa5268b415d30cfce2415c5113aa1d4a163e00a0786a2018c15df27d60
@@ -206,7 +229,7 @@ entries:
     version: 1.2.3
   - apiVersion: v2
     appVersion: 1.2.2
-    created: "2026-02-02T10:12:30.715182623Z"
+    created: "2026-02-02T19:03:05.718920215Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 40682bff35b1e820f1d146cc68cbe1b1045baee64f21706b8222bab607730782
@@ -228,7 +251,7 @@ entries:
     version: 1.2.2
   - apiVersion: v2
     appVersion: 1.2.1
-    created: "2026-02-02T10:12:30.712258713Z"
+    created: "2026-02-02T19:03:05.717307786Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 80360164a11092216dbfb2dd04137c18d75989df093803bb171fe6ae3c4d766e
@@ -250,7 +273,7 @@ entries:
     version: 1.2.1
   - apiVersion: v2
     appVersion: 1.2.0
-    created: "2026-02-02T10:12:30.711715085Z"
+    created: "2026-02-02T19:03:05.716556394Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 08cb850eadca6ed03a9a2fa6879b1f6662e6af5ca56f140aa1d5701c595fa526
@@ -272,7 +295,7 @@ entries:
     version: 1.2.0
   - apiVersion: v2
     appVersion: 1.1.5
-    created: "2026-02-02T10:12:30.711034508Z"
+    created: "2026-02-02T19:03:05.715391501Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 827a7328fc9cba1bfa3420d64d9d09b76447a1d73f1d702ca4c0aec32aa38721
@@ -294,7 +317,7 @@ entries:
     version: 1.1.5
   - apiVersion: v2
     appVersion: 1.1.0
-    created: "2026-02-02T10:12:30.710063451Z"
+    created: "2026-02-02T19:03:05.714628939Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: b2e81308750dc6b2f1560bfdaaea4a3f47cf95828ea937aa4f2fb147ab8eff2b
@@ -314,4 +337,4 @@ entries:
     urls:
     - https://guided-traffic.github.io/internal-secrets-operator/internal-secrets-operator-1.1.0.tgz
     version: 1.1.0
-generated: "2026-02-02T10:12:30.708900753Z"
+generated: "2026-02-02T19:03:05.713922353Z"

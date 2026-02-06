@@ -2224,3 +2224,198 @@ func TestSecretReplicatorReconciler_PushPermissionDenied(t *testing.T) {
 		t.Error("Expected a warning event for failed push due to permission denied")
 	}
 }
+
+func TestSecretReplicatorReconciler_FindPushSourcesForTarget(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	// Source secret that pushes to "staging" and "dev" namespaces
+	sourceSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "db-credentials",
+			Namespace: "production",
+			Annotations: map[string]string{
+				replicator.AnnotationReplicateTo: "staging,dev",
+			},
+		},
+		Data: map[string][]byte{
+			"password": []byte("secret-password"),
+		},
+	}
+
+	// A secret in the staging namespace with the same name (this could be a conflicting secret that was deleted)
+	targetSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "db-credentials",
+			Namespace: "staging",
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(sourceSecret).
+		Build()
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: NewTestEventRecorder(10),
+	}
+
+	requests := reconciler.findPushSourcesForTarget(context.Background(), targetSecret)
+
+	if len(requests) != 1 {
+		t.Errorf("Expected 1 request, got %d", len(requests))
+		return
+	}
+
+	if requests[0].Namespace != "production" || requests[0].Name != "db-credentials" {
+		t.Errorf("Expected request for production/db-credentials, got %s/%s", requests[0].Namespace, requests[0].Name)
+	}
+}
+
+func TestSecretReplicatorReconciler_FindPushSourcesForTargetNonSecret(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		Build()
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: NewTestEventRecorder(10),
+	}
+
+	// Pass a non-Secret object
+	namespace := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-namespace",
+		},
+	}
+
+	requests := reconciler.findPushSourcesForTarget(context.Background(), namespace)
+
+	if requests != nil {
+		t.Errorf("Expected nil requests for non-Secret object, got %d requests", len(requests))
+	}
+}
+
+func TestSecretReplicatorReconciler_FindPushSourcesForTargetDifferentName(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	// Source secret that pushes to "staging" namespace
+	sourceSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "db-credentials",
+			Namespace: "production",
+			Annotations: map[string]string{
+				replicator.AnnotationReplicateTo: "staging",
+			},
+		},
+	}
+
+	// A secret with a different name - should not trigger reconciliation
+	differentSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "other-secret",
+			Namespace: "staging",
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(sourceSecret).
+		Build()
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: NewTestEventRecorder(10),
+	}
+
+	requests := reconciler.findPushSourcesForTarget(context.Background(), differentSecret)
+
+	if len(requests) != 0 {
+		t.Errorf("Expected 0 requests for secret with different name, got %d", len(requests))
+	}
+}
+
+func TestSecretReplicatorReconciler_FindPushSourcesForTargetListError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	targetSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "db-credentials",
+			Namespace: "staging",
+		},
+	}
+
+	// Create a client that will fail on List
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, client client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				return fmt.Errorf("simulated list error")
+			},
+		}).
+		Build()
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: NewTestEventRecorder(10),
+	}
+
+	requests := reconciler.findPushSourcesForTarget(context.Background(), targetSecret)
+
+	// Should return nil when List fails
+	if requests != nil {
+		t.Errorf("Expected nil requests when List fails, got %d requests", len(requests))
+	}
+}
+
+func TestSecretReplicatorReconciler_FindPushSourcesForTargetNoAnnotation(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	// Source secret without replicate-to annotation
+	sourceSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "db-credentials",
+			Namespace: "production",
+		},
+	}
+
+	targetSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "db-credentials",
+			Namespace: "staging",
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(sourceSecret).
+		Build()
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: NewTestEventRecorder(10),
+	}
+
+	requests := reconciler.findPushSourcesForTarget(context.Background(), targetSecret)
+
+	if len(requests) != 0 {
+		t.Errorf("Expected 0 requests when source has no replicate-to annotation, got %d", len(requests))
+	}
+}

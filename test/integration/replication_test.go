@@ -1136,3 +1136,130 @@ func TestCharacterClassPatternsIntegration(t *testing.T) {
 		}
 	})
 }
+
+// TestPushReplication_RetryAfterConflictingSecretDeleted tests that when a conflicting
+// (unowned) target Secret is deleted, the controller automatically retries push replication
+// and creates the replicated Secret without requiring a controller restart.
+func TestPushReplication_RetryAfterConflictingSecretDeleted(t *testing.T) {
+	cfg := config.NewDefaultConfig()
+	cfg.Features.SecretReplicator = true
+	tc := setupTestManagerWithReplicator(t, cfg)
+	defer tc.cancel()
+
+	ctx := context.Background()
+
+	// Create source namespace
+	sourceNS := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "retry-source-",
+		},
+	}
+	if err := tc.client.Create(ctx, sourceNS); err != nil {
+		t.Fatalf("failed to create source namespace: %v", err)
+	}
+	defer tc.client.Delete(ctx, sourceNS)
+
+	// Create target namespace
+	targetNS := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "retry-target-",
+		},
+	}
+	if err := tc.client.Create(ctx, targetNS); err != nil {
+		t.Fatalf("failed to create target namespace: %v", err)
+	}
+	defer tc.client.Delete(ctx, targetNS)
+
+	// Step 1: Create a conflicting (unowned) Secret in the target namespace FIRST
+	conflictingSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "retry-secret",
+			Namespace: targetNS.Name,
+			// No replicated-from annotation - this is a foreign/unowned secret
+		},
+		Data: map[string][]byte{
+			"foreign-key": []byte("foreign-value"),
+		},
+	}
+	if err := tc.client.Create(ctx, conflictingSecret); err != nil {
+		t.Fatalf("failed to create conflicting target secret: %v", err)
+	}
+
+	// Step 2: Create source Secret that wants to push to target namespace
+	sourceSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "retry-secret",
+			Namespace: sourceNS.Name,
+			Annotations: map[string]string{
+				replicator.AnnotationReplicateTo: targetNS.Name,
+			},
+		},
+		Data: map[string][]byte{
+			"replicated-key": []byte("replicated-value"),
+		},
+	}
+	if err := tc.client.Create(ctx, sourceSecret); err != nil {
+		t.Fatalf("failed to create source secret: %v", err)
+	}
+	defer tc.client.Delete(ctx, sourceSecret)
+
+	// Step 3: Verify the push was blocked - target should still have original data
+	time.Sleep(3 * time.Second)
+
+	var blockedTarget corev1.Secret
+	if err := tc.client.Get(ctx, types.NamespacedName{
+		Namespace: targetNS.Name,
+		Name:      "retry-secret",
+	}, &blockedTarget); err != nil {
+		t.Fatalf("failed to get target secret: %v", err)
+	}
+
+	// Should still have original foreign data, not the replicated data
+	if string(blockedTarget.Data["foreign-key"]) != "foreign-value" {
+		t.Fatalf("conflicting target secret should not have been modified, got data: %v", blockedTarget.Data)
+	}
+	if _, hasReplicatedKey := blockedTarget.Data["replicated-key"]; hasReplicatedKey {
+		t.Fatal("conflicting target secret should not have replicated data")
+	}
+
+	// Step 4: Delete the conflicting Secret
+	if err := tc.client.Delete(ctx, conflictingSecret); err != nil {
+		t.Fatalf("failed to delete conflicting secret: %v", err)
+	}
+
+	// Verify it's actually deleted
+	if err := waitForSecretDeletion(ctx, tc.client, types.NamespacedName{
+		Namespace: targetNS.Name,
+		Name:      "retry-secret",
+	}); err != nil {
+		t.Fatalf("conflicting secret was not deleted: %v", err)
+	}
+
+	// Step 5: The controller should now automatically retry and create the replicated Secret
+	expectedData := map[string]string{
+		"replicated-key": "replicated-value",
+	}
+	replicatedSecret, err := waitForSecretReplication(ctx, tc.client, types.NamespacedName{
+		Namespace: targetNS.Name,
+		Name:      "retry-secret",
+	}, expectedData)
+	if err != nil {
+		t.Fatalf("push replication did not retry after conflicting secret was deleted: %v", err)
+	}
+
+	// Verify the replicated Secret has the correct annotations
+	sourceRef := sourceNS.Name + "/retry-secret"
+	if replicatedSecret.Annotations[replicator.AnnotationReplicatedFrom] != sourceRef {
+		t.Errorf("expected replicated-from annotation %q, got %q",
+			sourceRef, replicatedSecret.Annotations[replicator.AnnotationReplicatedFrom])
+	}
+
+	// Verify the replicated Secret has the correct data
+	if string(replicatedSecret.Data["replicated-key"]) != "replicated-value" {
+		t.Errorf("expected replicated-key=replicated-value, got %s",
+			string(replicatedSecret.Data["replicated-key"]))
+	}
+
+	// Cleanup
+	defer tc.client.Delete(ctx, replicatedSecret)
+}

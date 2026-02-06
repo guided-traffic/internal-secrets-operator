@@ -1227,13 +1227,9 @@ func TestPushReplication_RetryAfterConflictingSecretDeleted(t *testing.T) {
 		t.Fatalf("failed to delete conflicting secret: %v", err)
 	}
 
-	// Verify it's actually deleted
-	if err := waitForSecretDeletion(ctx, tc.client, types.NamespacedName{
-		Namespace: targetNS.Name,
-		Name:      "retry-secret",
-	}); err != nil {
-		t.Fatalf("conflicting secret was not deleted: %v", err)
-	}
+	// Note: We do NOT wait for the secret to disappear here, because the controller's
+	// findPushSourcesForTarget watch reacts so quickly that it may recreate the secret
+	// (as a properly replicated one) before we can observe the deletion.
 
 	// Step 5: The controller should now automatically retry and create the replicated Secret
 	expectedData := map[string]string{

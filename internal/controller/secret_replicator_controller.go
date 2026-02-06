@@ -371,6 +371,12 @@ func (r *SecretReplicatorReconciler) SetupWithManagerAndName(mgr ctrl.Manager, n
 			handler.EnqueueRequestsFromMapFunc(r.findTargetsForSource),
 			builder.WithPredicates(sourcePredicate),
 		).
+		// Watch all Secrets to detect when a conflicting target is deleted
+		// This enables push-based replication to retry when the blocking Secret is removed
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.findPushSourcesForTarget),
+		).
 		Complete(r)
 }
 
@@ -414,6 +420,64 @@ func (r *SecretReplicatorReconciler) findTargetsForSource(ctx context.Context, o
 
 	if len(requests) > 0 {
 		log.Info("Triggering reconciliation of target Secrets", "source", sourceRef, "targetCount", len(requests))
+	}
+
+	return requests
+}
+
+// findPushSourcesForTarget finds all source Secrets that want to push to a namespace
+// where a Secret was deleted. This enables retry when a conflicting Secret is removed.
+func (r *SecretReplicatorReconciler) findPushSourcesForTarget(ctx context.Context, obj client.Object) []reconcile.Request {
+	secret, ok := obj.(*corev1.Secret)
+	if !ok {
+		return nil
+	}
+
+	log := log.FromContext(ctx)
+
+	// Find all Secrets with replicate-to annotation that includes this namespace
+	secretList := &corev1.SecretList{}
+	if err := r.List(ctx, secretList); err != nil {
+		log.Error(err, "failed to list Secrets for push source mapping")
+		return nil
+	}
+
+	var requests []reconcile.Request
+	for i := range secretList.Items {
+		source := &secretList.Items[i]
+		if source.Annotations == nil {
+			continue
+		}
+
+		// Check if this source pushes to the namespace where the Secret changed
+		replicateTo := source.Annotations[replicator.AnnotationReplicateTo]
+		if replicateTo == "" {
+			continue
+		}
+
+		// Check if the deleted/changed Secret has the same name and is in a target namespace
+		if source.Name != secret.Name {
+			continue
+		}
+
+		targetNamespaces := replicator.ParseTargetNamespaces(replicateTo)
+		for _, targetNS := range targetNamespaces {
+			if targetNS == secret.Namespace {
+				// This source wants to push to the namespace where the Secret changed
+				requests = append(requests, reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Namespace: source.Namespace,
+						Name:      source.Name,
+					},
+				})
+				log.V(1).Info("Found push source for target change", "source", fmt.Sprintf("%s/%s", source.Namespace, source.Name), "targetNamespace", secret.Namespace)
+				break
+			}
+		}
+	}
+
+	if len(requests) > 0 {
+		log.Info("Triggering reconciliation of push sources", "changedSecret", fmt.Sprintf("%s/%s", secret.Namespace, secret.Name), "sourceCount", len(requests))
 	}
 
 	return requests

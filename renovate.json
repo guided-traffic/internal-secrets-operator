@@ -233,6 +233,34 @@
       "depNameTemplate": "golang",
       "datasourceTemplate": "golang-version",
       "versioningTemplate": "semver"
+    },
+    {
+      "description": "Update Kubernetes version for envtest in Makefile",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^Makefile$/"
+      ],
+      "matchStrings": [
+        "ENVTEST_K8S_VERSION\\s*=\\s*(?<currentValue>[\\d.]+)"
+      ],
+      "depNameTemplate": "kubernetes/kubernetes",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "description": "Update setup-envtest version in Makefile (matches controller-runtime releases)",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^Makefile$/"
+      ],
+      "matchStrings": [
+        "ENVTEST_VERSION\\s*\\?=\\s*release-(?<currentValue>[\\d.]+)"
+      ],
+      "depNameTemplate": "sigs.k8s.io/controller-runtime",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v(?<version>\\d+\\.\\d+)"
     }
   ],
   "gomod": {

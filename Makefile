@@ -2,7 +2,7 @@
 IMG ?= ghcr.io/guided-traffic/internal-secrets-operator:latest
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.29.0
+ENVTEST_K8S_VERSION = 1.35.1
 
 # Go commands
 GOCMD = go
@@ -253,7 +253,7 @@ GOLANGCI_LINT ?= $(LOCALBIN)/golangci-lint
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.3.0
-ENVTEST_VERSION ?= release-0.17
+ENVTEST_VERSION ?= release-0.22
 GOLANGCI_LINT_VERSION ?= v1.55.2
 GOCYCLO_VERSION ?= v0.6.0
 

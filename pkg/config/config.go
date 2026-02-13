@@ -67,8 +67,24 @@ type DefaultsConfig struct {
 
 // RotationConfig holds the configuration for secret rotation
 type RotationConfig struct {
-	MinInterval  Duration `yaml:"minInterval"`
-	CreateEvents bool     `yaml:"createEvents"`
+	MinInterval        Duration                 `yaml:"minInterval"`
+	CreateEvents       bool                     `yaml:"createEvents"`
+	MaintenanceWindows MaintenanceWindowsConfig `yaml:"maintenanceWindows"`
+}
+
+// MaintenanceWindowsConfig holds the configuration for maintenance windows
+type MaintenanceWindowsConfig struct {
+	Enabled bool                `yaml:"enabled"`
+	Windows []MaintenanceWindow `yaml:"windows"`
+}
+
+// MaintenanceWindow defines a time window during which secret rotation is allowed
+type MaintenanceWindow struct {
+	Name      string   `yaml:"name"`
+	Days      []string `yaml:"days"`
+	StartTime string   `yaml:"startTime"`
+	EndTime   string   `yaml:"endTime"`
+	Timezone  string   `yaml:"timezone"`
 }
 
 // StringOptions holds the character set options for string generation
@@ -229,6 +245,13 @@ func (c *Config) Validate() error {
 	// Validate rotation minInterval
 	if c.Rotation.MinInterval.Duration() < 0 {
 		return fmt.Errorf("rotation minInterval must be non-negative, got %s", c.Rotation.MinInterval.Duration())
+	}
+
+	// Validate maintenance windows if enabled
+	if c.Rotation.MaintenanceWindows.Enabled {
+		if err := c.Rotation.MaintenanceWindows.Validate(); err != nil {
+			return fmt.Errorf("maintenance windows configuration error: %w", err)
+		}
 	}
 
 	return nil

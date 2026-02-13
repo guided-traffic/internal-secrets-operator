@@ -29,9 +29,9 @@ import (
 
 	"go.uber.org/zap/zapcore"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -83,6 +83,13 @@ func TestMain(m *testing.M) {
 	err = corev1.AddToScheme(scheme.Scheme)
 	if err != nil {
 		logf.Log.Error(err, "failed to add corev1 to scheme")
+		os.Exit(1)
+	}
+
+	// Add rbacv1 to scheme (needed for RBAC tests)
+	err = rbacv1.AddToScheme(scheme.Scheme)
+	if err != nil {
+		logf.Log.Error(err, "failed to add rbacv1 to scheme")
 		os.Exit(1)
 	}
 
@@ -152,9 +159,8 @@ func setupTestManagerWithClock(t *testing.T, operatorConfig *config.Config, cloc
 		t.Fatalf("failed to create manager: %v", err)
 	}
 
-	// Create event recorder
-	eventBroadcaster := record.NewBroadcaster()
-	eventRecorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: "secret-operator"})
+	// Get event recorder from manager (uses the new events API)
+	eventRecorder := mgr.GetEventRecorder("secret-operator")
 
 	if operatorConfig == nil {
 		operatorConfig = config.NewDefaultConfig()
@@ -253,9 +259,8 @@ func setupTestManagerWithReplicator(t *testing.T, operatorConfig *config.Config)
 		t.Fatalf("failed to create manager: %v", err)
 	}
 
-	// Create event recorder
-	eventBroadcaster := record.NewBroadcaster()
-	eventRecorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: "secret-replicator"})
+	// Get event recorder from manager (uses the new events API)
+	eventRecorder := mgr.GetEventRecorder("secret-replicator")
 
 	if operatorConfig == nil {
 		operatorConfig = config.NewDefaultConfig()

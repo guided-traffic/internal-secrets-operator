@@ -199,7 +199,7 @@ build: fmt vet ## Build manager binary.
 
 .PHONY: run
 run: fmt vet ## Run a controller from your host.
-	go run ./cmd/main.go
+	go run ./cmd/main.go --zap-log-level=debug
 
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.

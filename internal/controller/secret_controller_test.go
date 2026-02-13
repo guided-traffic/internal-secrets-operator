@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -46,6 +45,29 @@ type MockClock struct {
 // Now returns the mocked current time
 func (m *MockClock) Now() time.Time {
 	return m.currentTime
+}
+
+// TestEventRecorder is a simple mock for events.EventRecorder used in tests
+type TestEventRecorder struct {
+	Events chan string
+}
+
+// Eventf records an event with formatted message (implements events.EventRecorder)
+func (t *TestEventRecorder) Eventf(regarding runtime.Object, related runtime.Object, eventtype, reason, action, note string, args ...interface{}) {
+	msg := fmt.Sprintf(note, args...)
+	event := fmt.Sprintf("%s %s: %s", eventtype, reason, msg)
+	select {
+	case t.Events <- event:
+	default:
+		// Channel full, drop event
+	}
+}
+
+// NewTestEventRecorder creates a new TestEventRecorder for testing
+func NewTestEventRecorder(bufferSize int) *TestEventRecorder {
+	return &TestEventRecorder{
+		Events: make(chan string, bufferSize),
+	}
 }
 
 func TestParseFields(t *testing.T) {
@@ -447,7 +469,7 @@ func TestReconcile(t *testing.T) {
 				Build()
 
 			gen := generator.NewSecretGenerator()
-			fakeRecorder := record.NewFakeRecorder(10)
+			fakeRecorder := NewTestEventRecorder(10)
 
 			reconciler := &SecretReconciler{
 				Client:        fakeClient,
@@ -503,7 +525,7 @@ func TestReconcileSecretNotFound(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReconciler{
 		Client:        fakeClient,
@@ -552,7 +574,7 @@ func TestReconcileEmitsSuccessEvent(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReconciler{
 		Client:        fakeClient,
@@ -608,7 +630,7 @@ func TestReconcileEmitsWarningEventOnError(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReconciler{
 		Client:        fakeClient,
@@ -667,7 +689,7 @@ func TestReconcileNoEventWhenNoChanges(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReconciler{
 		Client:        fakeClient,
@@ -865,7 +887,7 @@ func TestReconcileWithRotation(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	cfg := config.NewDefaultConfig()
 	cfg.Rotation.CreateEvents = true
@@ -954,7 +976,7 @@ func TestReconcileWithRotationNotYetDue(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReconciler{
 		Client:        fakeClient,
@@ -1032,7 +1054,7 @@ func TestReconcileRotationBelowMinInterval(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReconciler{
 		Client:        fakeClient,
@@ -1110,7 +1132,7 @@ func TestReconcileWithFieldSpecificRotation(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	cfg := config.NewDefaultConfig()
 	cfg.Rotation.CreateEvents = true
@@ -1178,7 +1200,7 @@ func TestReconcileInitialGenerationWithBelowMinInterval(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	// Use config with 5s minInterval (like E2E test)
 	cfg := config.NewDefaultConfig()
@@ -1565,7 +1587,7 @@ func TestReconcileWithCustomCharset(t *testing.T) {
 				Build()
 
 			gen := generator.NewSecretGenerator()
-			fakeRecorder := record.NewFakeRecorder(10)
+			fakeRecorder := NewTestEventRecorder(10)
 			cfg := config.NewDefaultConfig()
 
 			reconciler := &SecretReconciler{
@@ -1800,7 +1822,7 @@ func TestUpdateSecretAndEmitEventsUpdateError(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReconciler{
 		Client:        fakeClient,
@@ -1840,7 +1862,7 @@ func TestReconcileGetError(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReconciler{
 		Client:        fakeClient,
@@ -1896,7 +1918,7 @@ func TestReconcileRotationWithCreateEventsEnabled(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 	cfg := config.NewDefaultConfig()
 	cfg.Rotation.MinInterval = config.Duration(1 * time.Minute)
 	cfg.Rotation.CreateEvents = true // Enable rotation events
@@ -1965,7 +1987,7 @@ func TestReconcileRotationWithCreateEventsDisabled(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 	cfg := config.NewDefaultConfig()
 	cfg.Rotation.MinInterval = config.Duration(1 * time.Minute)
 	cfg.Rotation.CreateEvents = false // Disable rotation events (default)
@@ -2078,7 +2100,7 @@ func TestReconcileWithNilSecretAnnotations(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReconciler{
 		Client:        fakeClient,
@@ -2125,7 +2147,7 @@ func TestReconcileWithNilSecretData(t *testing.T) {
 		Build()
 
 	gen := generator.NewSecretGenerator()
-	fakeRecorder := record.NewFakeRecorder(10)
+	fakeRecorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReconciler{
 		Client:        fakeClient,
@@ -2177,5 +2199,478 @@ func TestSinceMethod(t *testing.T) {
 	expected := 10 * time.Minute
 	if elapsed != expected {
 		t.Errorf("expected since to return %v, got %v", expected, elapsed)
+	}
+}
+
+// TestMaintenanceWindowRotationDeferred tests that rotation is deferred when outside maintenance window
+func TestMaintenanceWindowRotationDeferred(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+
+	// Secret was generated 2 hours ago, rotation interval is 1 hour
+	generatedAt := time.Date(2026, 2, 2, 10, 0, 0, 0, time.UTC) // Monday 10:00 UTC
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-secret",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationAutogenerate: "password",
+				AnnotationRotate:       "1h",
+				AnnotationGeneratedAt:  generatedAt.Format(time.RFC3339),
+			},
+		},
+		Data: map[string][]byte{
+			"password": []byte("old-password"),
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
+	gen := generator.NewSecretGenerator()
+	fakeRecorder := NewTestEventRecorder(10)
+
+	// Current time is Monday 12:00 UTC - rotation is due but we're outside maintenance window
+	fixedTime := time.Date(2026, 2, 2, 12, 0, 0, 0, time.UTC)
+	mockClock := &MockClock{currentTime: fixedTime}
+
+	cfg := config.NewDefaultConfig()
+	cfg.Rotation.MaintenanceWindows = config.MaintenanceWindowsConfig{
+		Enabled: true,
+		Windows: []config.MaintenanceWindow{
+			{
+				Name:      "weekend-night",
+				Days:      []string{"saturday", "sunday"},
+				StartTime: "03:00",
+				EndTime:   "05:00",
+				Timezone:  "UTC",
+			},
+		},
+	}
+
+	reconciler := &SecretReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Generator:     gen,
+		Config:        cfg,
+		EventRecorder: fakeRecorder,
+		Clock:         mockClock,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      secret.Name,
+			Namespace: secret.Namespace,
+		},
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should have RequeueAfter set to next maintenance window
+	if result.RequeueAfter == 0 {
+		t.Error("expected RequeueAfter to be set for deferred rotation")
+	}
+
+	// Fetch the secret - password should NOT have changed
+	var updatedSecret corev1.Secret
+	err = fakeClient.Get(context.Background(), req.NamespacedName, &updatedSecret)
+	if err != nil {
+		t.Fatalf("failed to get secret: %v", err)
+	}
+
+	if string(updatedSecret.Data["password"]) != "old-password" {
+		t.Error("expected password to remain unchanged when rotation is deferred")
+	}
+
+	// Check for deferred rotation event
+	select {
+	case event := <-fakeRecorder.Events:
+		if !strings.Contains(event, EventReasonRotationDeferred) {
+			t.Errorf("expected deferred rotation event, got: %s", event)
+		}
+	default:
+		t.Error("expected deferred rotation event to be recorded")
+	}
+}
+
+// TestMaintenanceWindowRotationAllowed tests that rotation proceeds when inside maintenance window
+func TestMaintenanceWindowRotationAllowed(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+
+	// Secret was generated 2 hours ago, rotation interval is 1 hour
+	generatedAt := time.Date(2026, 2, 7, 1, 0, 0, 0, time.UTC) // Saturday 01:00 UTC
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-secret",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationAutogenerate: "password",
+				AnnotationRotate:       "1h",
+				AnnotationGeneratedAt:  generatedAt.Format(time.RFC3339),
+			},
+		},
+		Data: map[string][]byte{
+			"password": []byte("old-password"),
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
+	gen := generator.NewSecretGenerator()
+	fakeRecorder := NewTestEventRecorder(10)
+
+	// Current time is Saturday 04:00 UTC - inside maintenance window, rotation is due
+	fixedTime := time.Date(2026, 2, 7, 4, 0, 0, 0, time.UTC)
+	mockClock := &MockClock{currentTime: fixedTime}
+
+	cfg := config.NewDefaultConfig()
+	cfg.Rotation.MaintenanceWindows = config.MaintenanceWindowsConfig{
+		Enabled: true,
+		Windows: []config.MaintenanceWindow{
+			{
+				Name:      "weekend-night",
+				Days:      []string{"saturday", "sunday"},
+				StartTime: "03:00",
+				EndTime:   "05:00",
+				Timezone:  "UTC",
+			},
+		},
+	}
+
+	reconciler := &SecretReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Generator:     gen,
+		Config:        cfg,
+		EventRecorder: fakeRecorder,
+		Clock:         mockClock,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      secret.Name,
+			Namespace: secret.Namespace,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Fetch the secret - password should have changed
+	var updatedSecret corev1.Secret
+	err = fakeClient.Get(context.Background(), req.NamespacedName, &updatedSecret)
+	if err != nil {
+		t.Fatalf("failed to get secret: %v", err)
+	}
+
+	if string(updatedSecret.Data["password"]) == "old-password" {
+		t.Error("expected password to be rotated when inside maintenance window")
+	}
+}
+
+// TestMaintenanceWindowDisabledAllowsRotation tests that rotation proceeds when maintenance windows are disabled
+func TestMaintenanceWindowDisabledAllowsRotation(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+
+	// Secret was generated 2 hours ago, rotation interval is 1 hour
+	generatedAt := time.Date(2026, 2, 2, 10, 0, 0, 0, time.UTC)
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-secret",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationAutogenerate: "password",
+				AnnotationRotate:       "1h",
+				AnnotationGeneratedAt:  generatedAt.Format(time.RFC3339),
+			},
+		},
+		Data: map[string][]byte{
+			"password": []byte("old-password"),
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
+	gen := generator.NewSecretGenerator()
+	fakeRecorder := NewTestEventRecorder(10)
+
+	// Current time is Monday 12:00 UTC - rotation is due
+	fixedTime := time.Date(2026, 2, 2, 12, 0, 0, 0, time.UTC)
+	mockClock := &MockClock{currentTime: fixedTime}
+
+	cfg := config.NewDefaultConfig()
+	// Maintenance windows disabled (default)
+	cfg.Rotation.MaintenanceWindows = config.MaintenanceWindowsConfig{
+		Enabled: false,
+	}
+
+	reconciler := &SecretReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Generator:     gen,
+		Config:        cfg,
+		EventRecorder: fakeRecorder,
+		Clock:         mockClock,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      secret.Name,
+			Namespace: secret.Namespace,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Fetch the secret - password should have changed
+	var updatedSecret corev1.Secret
+	err = fakeClient.Get(context.Background(), req.NamespacedName, &updatedSecret)
+	if err != nil {
+		t.Fatalf("failed to get secret: %v", err)
+	}
+
+	if string(updatedSecret.Data["password"]) == "old-password" {
+		t.Error("expected password to be rotated when maintenance windows are disabled")
+	}
+}
+
+// TestMaintenanceWindowRequeueAfterCalculation tests that RequeueAfter is correctly set to next window
+func TestMaintenanceWindowRequeueAfterCalculation(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+
+	// Secret was generated 2 hours ago, rotation interval is 1 hour
+	generatedAt := time.Date(2026, 2, 2, 10, 0, 0, 0, time.UTC) // Monday 10:00 UTC
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-secret",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationAutogenerate: "password",
+				AnnotationRotate:       "1h",
+				AnnotationGeneratedAt:  generatedAt.Format(time.RFC3339),
+			},
+		},
+		Data: map[string][]byte{
+			"password": []byte("old-password"),
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
+	gen := generator.NewSecretGenerator()
+	fakeRecorder := NewTestEventRecorder(10)
+
+	// Current time is Monday 12:00 UTC
+	fixedTime := time.Date(2026, 2, 2, 12, 0, 0, 0, time.UTC)
+	mockClock := &MockClock{currentTime: fixedTime}
+
+	cfg := config.NewDefaultConfig()
+	cfg.Rotation.MaintenanceWindows = config.MaintenanceWindowsConfig{
+		Enabled: true,
+		Windows: []config.MaintenanceWindow{
+			{
+				Name:      "weekend-night",
+				Days:      []string{"saturday"},
+				StartTime: "03:00",
+				EndTime:   "05:00",
+				Timezone:  "UTC",
+			},
+		},
+	}
+
+	reconciler := &SecretReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Generator:     gen,
+		Config:        cfg,
+		EventRecorder: fakeRecorder,
+		Clock:         mockClock,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      secret.Name,
+			Namespace: secret.Namespace,
+		},
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Next Saturday 03:00 UTC is 5 days - 9 hours = 111 hours away
+	// Monday 12:00 -> Saturday 03:00 = 4 days 15 hours = 111 hours
+	expectedNextWindow := time.Date(2026, 2, 7, 3, 0, 0, 0, time.UTC)
+	expectedDuration := expectedNextWindow.Sub(fixedTime)
+
+	if result.RequeueAfter != expectedDuration {
+		t.Errorf("expected RequeueAfter to be %v, got %v", expectedDuration, result.RequeueAfter)
+	}
+}
+
+// TestMaintenanceWindowMultipleWindows tests that the closest window is selected
+func TestMaintenanceWindowMultipleWindows(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+
+	// Secret was generated 2 hours ago, rotation interval is 1 hour
+	generatedAt := time.Date(2026, 2, 2, 10, 0, 0, 0, time.UTC) // Monday 10:00 UTC
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-secret",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationAutogenerate: "password",
+				AnnotationRotate:       "1h",
+				AnnotationGeneratedAt:  generatedAt.Format(time.RFC3339),
+			},
+		},
+		Data: map[string][]byte{
+			"password": []byte("old-password"),
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
+	gen := generator.NewSecretGenerator()
+	fakeRecorder := NewTestEventRecorder(10)
+
+	// Current time is Monday 12:00 UTC
+	fixedTime := time.Date(2026, 2, 2, 12, 0, 0, 0, time.UTC)
+	mockClock := &MockClock{currentTime: fixedTime}
+
+	cfg := config.NewDefaultConfig()
+	cfg.Rotation.MaintenanceWindows = config.MaintenanceWindowsConfig{
+		Enabled: true,
+		Windows: []config.MaintenanceWindow{
+			{
+				Name:      "weekend-night",
+				Days:      []string{"saturday"},
+				StartTime: "03:00",
+				EndTime:   "05:00",
+				Timezone:  "UTC",
+			},
+			{
+				Name:      "wednesday-maintenance",
+				Days:      []string{"wednesday"},
+				StartTime: "02:00",
+				EndTime:   "04:00",
+				Timezone:  "UTC",
+			},
+		},
+	}
+
+	reconciler := &SecretReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Generator:     gen,
+		Config:        cfg,
+		EventRecorder: fakeRecorder,
+		Clock:         mockClock,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      secret.Name,
+			Namespace: secret.Namespace,
+		},
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Wednesday 02:00 is closer than Saturday 03:00
+	// Monday 12:00 -> Wednesday 02:00 = 1 day 14 hours = 38 hours
+	expectedNextWindow := time.Date(2026, 2, 4, 2, 0, 0, 0, time.UTC)
+	expectedDuration := expectedNextWindow.Sub(fixedTime)
+
+	if result.RequeueAfter != expectedDuration {
+		t.Errorf("expected RequeueAfter to be %v (Wednesday window), got %v", expectedDuration, result.RequeueAfter)
+	}
+}
+
+// TestMaintenanceWindowInitialGenerationNotDeferred tests that initial generation is not affected by maintenance windows
+func TestMaintenanceWindowInitialGenerationNotDeferred(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+
+	// New secret without any generated data
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-secret",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationAutogenerate: "password",
+				AnnotationRotate:       "1h",
+			},
+		},
+		Data: map[string][]byte{},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
+	gen := generator.NewSecretGenerator()
+	fakeRecorder := NewTestEventRecorder(10)
+
+	// Current time is Monday 12:00 UTC - outside maintenance window
+	fixedTime := time.Date(2026, 2, 2, 12, 0, 0, 0, time.UTC)
+	mockClock := &MockClock{currentTime: fixedTime}
+
+	cfg := config.NewDefaultConfig()
+	cfg.Rotation.MaintenanceWindows = config.MaintenanceWindowsConfig{
+		Enabled: true,
+		Windows: []config.MaintenanceWindow{
+			{
+				Name:      "weekend-night",
+				Days:      []string{"saturday", "sunday"},
+				StartTime: "03:00",
+				EndTime:   "05:00",
+				Timezone:  "UTC",
+			},
+		},
+	}
+
+	reconciler := &SecretReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Generator:     gen,
+		Config:        cfg,
+		EventRecorder: fakeRecorder,
+		Clock:         mockClock,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      secret.Name,
+			Namespace: secret.Namespace,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Fetch the secret - password should have been generated (initial generation is not deferred)
+	var updatedSecret corev1.Secret
+	err = fakeClient.Get(context.Background(), req.NamespacedName, &updatedSecret)
+	if err != nil {
+		t.Fatalf("failed to get secret: %v", err)
+	}
+
+	if _, ok := updatedSecret.Data["password"]; !ok {
+		t.Error("expected password to be generated even outside maintenance window (initial generation)")
 	}
 }

@@ -58,7 +58,7 @@ func main() {
 	flag.StringVar(&configPath, "config", config.DefaultConfigPath, "Path to the configuration file.")
 
 	opts := zap.Options{
-		Development: true,
+		Development: false,
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -98,7 +98,7 @@ func main() {
 			Scheme:        mgr.GetScheme(),
 			Generator:     gen,
 			Config:        cfg,
-			EventRecorder: mgr.GetEventRecorderFor("secret-operator"),
+			EventRecorder: mgr.GetEventRecorder("secret-operator"),
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "SecretGenerator")
 			os.Exit(1)
@@ -114,7 +114,7 @@ func main() {
 			Client:        mgr.GetClient(),
 			Scheme:        mgr.GetScheme(),
 			Config:        cfg,
-			EventRecorder: mgr.GetEventRecorderFor("secret-replicator"),
+			EventRecorder: mgr.GetEventRecorder("secret-replicator"),
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "SecretReplicator")
 			os.Exit(1)

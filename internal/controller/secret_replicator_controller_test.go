@@ -23,10 +23,10 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -163,7 +163,7 @@ func TestSecretReplicatorReconciler_PullReplication(t *testing.T) {
 				WithObjects(objs...).
 				Build()
 
-			recorder := record.NewFakeRecorder(10)
+			recorder := NewTestEventRecorder(10)
 
 			reconciler := &SecretReplicatorReconciler{
 				Client:        fakeClient,
@@ -314,7 +314,7 @@ func TestSecretReplicatorReconciler_PushReplication(t *testing.T) {
 				WithObjects(objs...).
 				Build()
 
-			recorder := record.NewFakeRecorder(10)
+			recorder := NewTestEventRecorder(10)
 
 			reconciler := &SecretReplicatorReconciler{
 				Client:        fakeClient,
@@ -397,7 +397,7 @@ func TestSecretReplicatorReconciler_ConflictingAnnotations(t *testing.T) {
 		WithObjects(secret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -482,7 +482,7 @@ func TestSecretReplicatorReconciler_FindTargetsForSource(t *testing.T) {
 		Client:        fakeClient,
 		Scheme:        scheme,
 		Config:        config.NewDefaultConfig(),
-		EventRecorder: record.NewFakeRecorder(10),
+		EventRecorder: NewTestEventRecorder(10),
 	}
 
 	requests := reconciler.findTargetsForSource(context.Background(), sourceSecret)
@@ -543,7 +543,7 @@ func TestSecretReplicatorReconciler_SourceWithoutAllowlist(t *testing.T) {
 		WithObjects(sourceSecret, targetSecret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -612,7 +612,7 @@ func TestSecretReplicatorReconciler_PushToMultipleNamespaces(t *testing.T) {
 		WithObjects(sourceSecret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -681,7 +681,7 @@ func TestSecretReplicatorReconciler_FinalizerAddedOnPush(t *testing.T) {
 		WithObjects(sourceSecret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -738,7 +738,7 @@ func TestSecretReplicatorReconciler_AllowAutogenerateWithReplicatableFromNamespa
 		WithObjects(secret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -855,7 +855,7 @@ func TestSecretReplicatorReconciler_HandleDeletion(t *testing.T) {
 				WithObjects(objs...).
 				Build()
 
-			recorder := record.NewFakeRecorder(10)
+			recorder := NewTestEventRecorder(10)
 
 			reconciler := &SecretReplicatorReconciler{
 				Client:        fakeClient,
@@ -933,7 +933,7 @@ func TestSecretReplicatorReconciler_HandleDeletionWithoutFinalizer(t *testing.T)
 		WithObjects(sourceSecret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -968,7 +968,7 @@ func TestSecretReplicatorReconciler_SecretNotFound(t *testing.T) {
 		WithScheme(scheme).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1010,7 +1010,7 @@ func TestSecretReplicatorReconciler_InvalidSourceReference(t *testing.T) {
 		WithObjects(targetSecret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1078,7 +1078,7 @@ func TestSecretReplicatorReconciler_SourceBeingDeleted(t *testing.T) {
 		WithObjects(sourceSecret, targetSecret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1132,7 +1132,7 @@ func TestSecretReplicatorReconciler_PushEmptyNamespaceList(t *testing.T) {
 		WithObjects(sourceSecret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1180,7 +1180,7 @@ func TestSecretReplicatorReconciler_FindTargetsForSourceWithNonSecret(t *testing
 		Client:        fakeClient,
 		Scheme:        scheme,
 		Config:        config.NewDefaultConfig(),
-		EventRecorder: record.NewFakeRecorder(10),
+		EventRecorder: NewTestEventRecorder(10),
 	}
 
 	// Pass a non-Secret object (use a ConfigMap-like object but cast it wrong)
@@ -1223,7 +1223,7 @@ func TestSecretReplicatorReconciler_FindTargetsForSourceNoTargets(t *testing.T) 
 		Client:        fakeClient,
 		Scheme:        scheme,
 		Config:        config.NewDefaultConfig(),
-		EventRecorder: record.NewFakeRecorder(10),
+		EventRecorder: NewTestEventRecorder(10),
 	}
 
 	requests := reconciler.findTargetsForSource(context.Background(), sourceSecret)
@@ -1256,7 +1256,7 @@ func TestSecretReplicatorReconciler_PushReplicationWithOnlyWhitespaceNamespaces(
 		WithObjects(sourceSecret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1316,7 +1316,7 @@ func TestSecretReplicatorReconciler_PushReplicationWithFinalizer(t *testing.T) {
 		WithObjects(sourceSecret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1385,7 +1385,7 @@ func TestSecretReplicatorReconciler_PushUpdateExistingOwnedSecret(t *testing.T) 
 		WithObjects(sourceSecret, targetSecret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1463,7 +1463,7 @@ func TestSecretReplicatorReconciler_PullReplicationUpdateError(t *testing.T) {
 		}).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1526,7 +1526,7 @@ func TestSecretReplicatorReconciler_PushCreateError(t *testing.T) {
 		}).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1605,7 +1605,7 @@ func TestSecretReplicatorReconciler_PushUpdateOwnedSecretError(t *testing.T) {
 		}).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1665,7 +1665,7 @@ func TestSecretReplicatorReconciler_HandleDeletionListError(t *testing.T) {
 		}).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1727,7 +1727,7 @@ func TestSecretReplicatorReconciler_HandleDeletionDeleteError(t *testing.T) {
 		}).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1795,7 +1795,7 @@ func TestSecretReplicatorReconciler_HandleDeletionRemoveFinalizerError(t *testin
 		}).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1837,7 +1837,7 @@ func TestSecretReplicatorReconciler_HandleDeletionNoReplicateToAnnotation(t *tes
 		WithObjects(sourceSecret).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1884,7 +1884,7 @@ func TestSecretReplicatorReconciler_HandleDeletionNoReplicateToRemoveFinalizerEr
 		}).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1937,7 +1937,7 @@ func TestSecretReplicatorReconciler_PushAddFinalizerError(t *testing.T) {
 		}).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -1988,7 +1988,7 @@ func TestSecretReplicatorReconciler_FindTargetsForSourceListError(t *testing.T) 
 		Client:        fakeClient,
 		Scheme:        scheme,
 		Config:        config.NewDefaultConfig(),
-		EventRecorder: record.NewFakeRecorder(10),
+		EventRecorder: NewTestEventRecorder(10),
 	}
 
 	requests := reconciler.findTargetsForSource(context.Background(), sourceSecret)
@@ -2013,7 +2013,7 @@ func TestSecretReplicatorReconciler_ReconcileGetError(t *testing.T) {
 		}).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -2067,7 +2067,7 @@ func TestSecretReplicatorReconciler_PullReplicationGetSourceError(t *testing.T) 
 		}).
 		Build()
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := NewTestEventRecorder(10)
 
 	reconciler := &SecretReplicatorReconciler{
 		Client:        fakeClient,
@@ -2086,5 +2086,336 @@ func TestSecretReplicatorReconciler_PullReplicationGetSourceError(t *testing.T) 
 	_, err := reconciler.Reconcile(context.Background(), req)
 	if err == nil {
 		t.Error("Expected error from Reconcile when getting source secret fails (not NotFound)")
+	}
+}
+func TestSecretReplicatorReconciler_PushToNonexistentNamespace(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	sourceSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "push-nonexistent-ns",
+			Namespace: "production",
+			Annotations: map[string]string{
+				replicator.AnnotationReplicateTo: "nonexistent-namespace",
+			},
+		},
+		Data: map[string][]byte{
+			"key": []byte("value"),
+		},
+	}
+
+	// Create a client that returns NotFound error on Create (simulating non-existent namespace)
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(sourceSecret).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				if secret, ok := obj.(*corev1.Secret); ok && secret.Namespace == "nonexistent-namespace" {
+					// Simulate "namespace not found" error
+					return apierrors.NewNotFound(corev1.Resource("namespaces"), "nonexistent-namespace")
+				}
+				return client.Create(ctx, obj, opts...)
+			},
+		}).
+		Build()
+
+	recorder := NewTestEventRecorder(10)
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: recorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: sourceSecret.Namespace,
+			Name:      sourceSecret.Name,
+		},
+	}
+
+	// Should not return an error even when namespace doesn't exist
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Errorf("Reconcile() error = %v, expected nil (non-existent namespace should be handled gracefully)", err)
+	}
+
+	// Check for warning event about the failed push
+	select {
+	case event := <-recorder.Events:
+		if !strings.Contains(event, "Warning") || !strings.Contains(event, "PushFailed") {
+			t.Errorf("Expected warning event about push failure, got: %s", event)
+		}
+		// Event should contain "namespace not found" reason
+		if !strings.Contains(event, "not found") {
+			t.Errorf("Expected event message to contain 'not found', got: %s", event)
+		}
+	default:
+		t.Error("Expected a warning event for failed push to non-existent namespace")
+	}
+}
+
+func TestSecretReplicatorReconciler_PushPermissionDenied(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	sourceSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "push-permission-denied",
+			Namespace: "production",
+			Annotations: map[string]string{
+				replicator.AnnotationReplicateTo: "restricted-namespace",
+			},
+		},
+		Data: map[string][]byte{
+			"key": []byte("value"),
+		},
+	}
+
+	// Create a client that returns Forbidden error on Create
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(sourceSecret).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				if secret, ok := obj.(*corev1.Secret); ok && secret.Namespace == "restricted-namespace" {
+					return apierrors.NewForbidden(corev1.Resource("secrets"), "test-secret", fmt.Errorf("permission denied"))
+				}
+				return client.Create(ctx, obj, opts...)
+			},
+		}).
+		Build()
+
+	recorder := NewTestEventRecorder(10)
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: recorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: sourceSecret.Namespace,
+			Name:      sourceSecret.Name,
+		},
+	}
+
+	// Should not return an error even when permission denied
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Errorf("Reconcile() error = %v, expected nil (permission denied should be handled gracefully)", err)
+	}
+
+	// Check for warning event about the failed push
+	select {
+	case event := <-recorder.Events:
+		if !strings.Contains(event, "Warning") || !strings.Contains(event, "PushFailed") {
+			t.Errorf("Expected warning event about push failure, got: %s", event)
+		}
+		// Event should contain "permission denied" reason
+		if !strings.Contains(event, "permission denied") {
+			t.Errorf("Expected event message to contain 'permission denied', got: %s", event)
+		}
+	default:
+		t.Error("Expected a warning event for failed push due to permission denied")
+	}
+}
+
+func TestSecretReplicatorReconciler_FindPushSourcesForTarget(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	// Source secret that pushes to "staging" and "dev" namespaces
+	sourceSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "db-credentials",
+			Namespace: "production",
+			Annotations: map[string]string{
+				replicator.AnnotationReplicateTo: "staging,dev",
+			},
+		},
+		Data: map[string][]byte{
+			"password": []byte("secret-password"),
+		},
+	}
+
+	// A secret in the staging namespace with the same name (this could be a conflicting secret that was deleted)
+	targetSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "db-credentials",
+			Namespace: "staging",
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(sourceSecret).
+		Build()
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: NewTestEventRecorder(10),
+	}
+
+	requests := reconciler.findPushSourcesForTarget(context.Background(), targetSecret)
+
+	if len(requests) != 1 {
+		t.Errorf("Expected 1 request, got %d", len(requests))
+		return
+	}
+
+	if requests[0].Namespace != "production" || requests[0].Name != "db-credentials" {
+		t.Errorf("Expected request for production/db-credentials, got %s/%s", requests[0].Namespace, requests[0].Name)
+	}
+}
+
+func TestSecretReplicatorReconciler_FindPushSourcesForTargetNonSecret(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		Build()
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: NewTestEventRecorder(10),
+	}
+
+	// Pass a non-Secret object
+	namespace := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-namespace",
+		},
+	}
+
+	requests := reconciler.findPushSourcesForTarget(context.Background(), namespace)
+
+	if requests != nil {
+		t.Errorf("Expected nil requests for non-Secret object, got %d requests", len(requests))
+	}
+}
+
+func TestSecretReplicatorReconciler_FindPushSourcesForTargetDifferentName(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	// Source secret that pushes to "staging" namespace
+	sourceSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "db-credentials",
+			Namespace: "production",
+			Annotations: map[string]string{
+				replicator.AnnotationReplicateTo: "staging",
+			},
+		},
+	}
+
+	// A secret with a different name - should not trigger reconciliation
+	differentSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "other-secret",
+			Namespace: "staging",
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(sourceSecret).
+		Build()
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: NewTestEventRecorder(10),
+	}
+
+	requests := reconciler.findPushSourcesForTarget(context.Background(), differentSecret)
+
+	if len(requests) != 0 {
+		t.Errorf("Expected 0 requests for secret with different name, got %d", len(requests))
+	}
+}
+
+func TestSecretReplicatorReconciler_FindPushSourcesForTargetListError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	targetSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "db-credentials",
+			Namespace: "staging",
+		},
+	}
+
+	// Create a client that will fail on List
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, client client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				return fmt.Errorf("simulated list error")
+			},
+		}).
+		Build()
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: NewTestEventRecorder(10),
+	}
+
+	requests := reconciler.findPushSourcesForTarget(context.Background(), targetSecret)
+
+	// Should return nil when List fails
+	if requests != nil {
+		t.Errorf("Expected nil requests when List fails, got %d requests", len(requests))
+	}
+}
+
+func TestSecretReplicatorReconciler_FindPushSourcesForTargetNoAnnotation(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	// Source secret without replicate-to annotation
+	sourceSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "db-credentials",
+			Namespace: "production",
+		},
+	}
+
+	targetSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "db-credentials",
+			Namespace: "staging",
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(sourceSecret).
+		Build()
+
+	reconciler := &SecretReplicatorReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: NewTestEventRecorder(10),
+	}
+
+	requests := reconciler.findPushSourcesForTarget(context.Background(), targetSecret)
+
+	if len(requests) != 0 {
+		t.Errorf("Expected 0 requests when source has no replicate-to annotation, got %d", len(requests))
 	}
 }

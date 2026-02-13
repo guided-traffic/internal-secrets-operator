@@ -126,12 +126,20 @@ rules:
 - apiGroups: [""]
   resources: ["secrets"]
   verbs: ["get", "list", "watch", "update", "patch", "create", "delete"]
+# Events permissions for recording events
+# Core API ("") is used by leader election
 - apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
+# events.k8s.io is used by controller-runtime Eventf
+- apiGroups: ["events.k8s.io"]
   resources: ["events"]
   verbs: ["create", "patch"]
 ```
 
-**Note:** `create` and `delete` verbs are required for secret replication features.
+**Notes:**
+- `create` and `delete` verbs for secrets are required for secret replication features.
+- Two Events API groups are required: Core API (`""`) for leader election events, and `events.k8s.io` for controller-runtime `Eventf()` calls (requires Kubernetes 1.19+).
 
 ### Defaults
 
@@ -162,6 +170,9 @@ defaults:
 rotation:
   minInterval: 5m
   createEvents: false
+  maintenanceWindows:
+    enabled: false
+    windows: []
 ```
 
 **Configuration options:**
@@ -177,8 +188,17 @@ rotation:
 | `defaults.string.allowedSpecialChars` | Which special characters to use | `!@#$%^&*()_+-=[]{}|;:,.<>?` |
 | `rotation.minInterval` | Minimum allowed rotation interval | `5m` |
 | `rotation.createEvents` | Create Normal Events when secrets are rotated | `false` |
+| `rotation.maintenanceWindows.enabled` | Enable maintenance windows for rotation | `false` |
+| `rotation.maintenanceWindows.windows` | List of maintenance window definitions | `[]` |
+| `rotation.maintenanceWindows.windows[].name` | Descriptive name for the window | - |
+| `rotation.maintenanceWindows.windows[].days` | List of weekdays (e.g., `["saturday", "sunday"]`) | - |
+| `rotation.maintenanceWindows.windows[].startTime` | Start time in 24h format (HH:MM) | - |
+| `rotation.maintenanceWindows.windows[].endTime` | End time in 24h format (HH:MM) | - |
+| `rotation.maintenanceWindows.windows[].timezone` | IANA timezone (e.g., `Europe/Berlin`) | - |
 
 **Note:** At least one of `uppercase`, `lowercase`, `numbers`, or `specialChars` must be `true`.
+
+**Note:** When `maintenanceWindows.enabled` is `true`, `endTime` must be after `startTime`, otherwise the operator will fail to start.
 
 ### Helm Chart Configuration
 
@@ -199,6 +219,15 @@ config:
   rotation:
     minInterval: 5m
     createEvents: false
+    maintenanceWindows:
+      enabled: false
+      windows: []
+      # Example:
+      # - name: "weekend-night"
+      #   days: ["saturday", "sunday"]
+      #   startTime: "03:00"
+      #   endTime: "05:00"
+      #   timezone: "Europe/Berlin"
 ```
 
 ## Coding Guidelines

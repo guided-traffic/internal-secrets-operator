@@ -24,7 +24,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -51,7 +51,7 @@ type SecretReplicatorReconciler struct {
 	client.Client
 	Scheme        *runtime.Scheme
 	Config        *config.Config
-	EventRecorder record.EventRecorder
+	EventRecorder events.EventRecorder
 }
 
 // Reconcile handles Secret replication (both pull and push)
@@ -76,7 +76,7 @@ func (r *SecretReplicatorReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	// Check for conflicting annotations (autogenerate + replicate-from)
 	if replicator.HasConflictingAnnotations(secret) {
-		r.EventRecorder.Event(secret, corev1.EventTypeWarning, EventReasonConflictingFeatures,
+		r.EventRecorder.Eventf(secret, nil, corev1.EventTypeWarning, EventReasonConflictingFeatures, "Reconcile",
 			"Secret has both 'autogenerate' and 'replicate-from' annotations. These features cannot be used together.")
 		log.Info("Skipping Secret with conflicting annotations", "namespace", secret.Namespace, "name", secret.Name)
 		return ctrl.Result{}, nil
@@ -103,7 +103,7 @@ func (r *SecretReplicatorReconciler) handlePullReplication(ctx context.Context, 
 	sourceRef := targetSecret.Annotations[replicator.AnnotationReplicateFrom]
 	sourceNamespace, sourceName, err := replicator.ParseSourceReference(sourceRef)
 	if err != nil {
-		r.EventRecorder.Event(targetSecret, corev1.EventTypeWarning, EventReasonReplicationFailed,
+		r.EventRecorder.Eventf(targetSecret, nil, corev1.EventTypeWarning, EventReasonReplicationFailed, "Pull",
 			fmt.Sprintf("Invalid source reference: %v", err))
 		log.Error(err, "invalid source reference", "sourceRef", sourceRef)
 		return ctrl.Result{}, nil // Don't requeue - user needs to fix annotation
@@ -114,7 +114,7 @@ func (r *SecretReplicatorReconciler) handlePullReplication(ctx context.Context, 
 	sourceKey := types.NamespacedName{Namespace: sourceNamespace, Name: sourceName}
 	if err := r.Get(ctx, sourceKey, sourceSecret); err != nil {
 		if apierrors.IsNotFound(err) {
-			r.EventRecorder.Event(targetSecret, corev1.EventTypeWarning, EventReasonReplicationFailed,
+			r.EventRecorder.Eventf(targetSecret, nil, corev1.EventTypeWarning, EventReasonReplicationFailed, "Pull",
 				fmt.Sprintf("Source Secret %s not found", sourceRef))
 			log.Info("Source Secret not found", "source", sourceRef)
 			return ctrl.Result{}, nil
@@ -125,7 +125,7 @@ func (r *SecretReplicatorReconciler) handlePullReplication(ctx context.Context, 
 
 	// Check if source Secret was deleted
 	if replicator.IsBeingDeleted(sourceSecret) {
-		r.EventRecorder.Event(targetSecret, corev1.EventTypeWarning, EventReasonSourceDeleted,
+		r.EventRecorder.Eventf(targetSecret, nil, corev1.EventTypeWarning, EventReasonSourceDeleted, "Pull",
 			fmt.Sprintf("Source Secret %s is being deleted. Target will keep last known data.", sourceRef))
 		log.Info("Source Secret being deleted - keeping snapshot", "source", sourceRef)
 		return ctrl.Result{}, nil
@@ -135,7 +135,7 @@ func (r *SecretReplicatorReconciler) handlePullReplication(ctx context.Context, 
 	sourceAllowlist := sourceSecret.Annotations[replicator.AnnotationReplicatableFromNamespaces]
 	allowed, err := replicator.ValidateReplication(sourceNamespace, sourceAllowlist, targetSecret.Namespace)
 	if err != nil || !allowed {
-		r.EventRecorder.Event(targetSecret, corev1.EventTypeWarning, EventReasonReplicationFailed,
+		r.EventRecorder.Eventf(targetSecret, nil, corev1.EventTypeWarning, EventReasonReplicationFailed, "Pull",
 			fmt.Sprintf("Replication not allowed: %v", err))
 		log.Info("Replication not allowed", "source", sourceRef, "error", err)
 		return ctrl.Result{}, nil // Don't requeue - mutual consent required
@@ -146,13 +146,13 @@ func (r *SecretReplicatorReconciler) handlePullReplication(ctx context.Context, 
 
 	// Update target Secret
 	if err := r.Update(ctx, targetSecret); err != nil {
-		r.EventRecorder.Event(targetSecret, corev1.EventTypeWarning, EventReasonReplicationFailed,
+		r.EventRecorder.Eventf(targetSecret, nil, corev1.EventTypeWarning, EventReasonReplicationFailed, "Pull",
 			fmt.Sprintf("Failed to update target Secret: %v", err))
 		log.Error(err, "failed to update target Secret")
 		return ctrl.Result{}, err
 	}
 
-	r.EventRecorder.Event(targetSecret, corev1.EventTypeNormal, EventReasonReplicationSucceeded,
+	r.EventRecorder.Eventf(targetSecret, nil, corev1.EventTypeNormal, EventReasonReplicationSucceeded, "Pull",
 		fmt.Sprintf("Successfully replicated from %s", sourceRef))
 	log.Info("Pull replication succeeded", "target", fmt.Sprintf("%s/%s", targetSecret.Namespace, targetSecret.Name), "source", sourceRef)
 
@@ -186,17 +186,15 @@ func (r *SecretReplicatorReconciler) handlePushReplication(ctx context.Context, 
 
 	// Push to each target namespace
 	for _, targetNS := range targetNamespaces {
-		if err := r.pushToNamespace(ctx, sourceSecret, targetNS, sourceRef); err != nil {
-			log.Error(err, "failed to push to namespace", "targetNamespace", targetNS)
-			// Continue with other namespaces even if one fails
-		}
+		r.pushToNamespace(ctx, sourceSecret, targetNS, sourceRef)
+		// Always continue with other namespaces even if one fails
 	}
 
 	return ctrl.Result{}, nil
 }
 
 // pushToNamespace pushes a Secret to a target namespace
-func (r *SecretReplicatorReconciler) pushToNamespace(ctx context.Context, sourceSecret *corev1.Secret, targetNS string, sourceRef string) error {
+func (r *SecretReplicatorReconciler) pushToNamespace(ctx context.Context, sourceSecret *corev1.Secret, targetNS string, sourceRef string) {
 	log := log.FromContext(ctx)
 
 	// Check if target Secret already exists
@@ -209,34 +207,69 @@ func (r *SecretReplicatorReconciler) pushToNamespace(ctx context.Context, source
 			// Target doesn't exist - create it
 			targetSecret = replicator.CreateReplicatedSecret(sourceSecret, targetNS)
 			if err := r.Create(ctx, targetSecret); err != nil {
-				r.EventRecorder.Event(sourceSecret, corev1.EventTypeWarning, EventReasonPushFailed,
-					fmt.Sprintf("Failed to create Secret in namespace %s: %v", targetNS, err))
-				return fmt.Errorf("failed to create target Secret: %w", err)
+				// Determine if this is an expected error (namespace not found, permission denied, etc.)
+				reasonMsg := r.getHumanReadableErrorReason(err)
+				r.EventRecorder.Eventf(sourceSecret, nil, corev1.EventTypeWarning, EventReasonPushFailed, "Push",
+					fmt.Sprintf("Could not replicate to namespace %s: %s", targetNS, reasonMsg))
+				log.V(1).Info("Could not replicate to namespace", "targetNamespace", targetNS, "reason", reasonMsg)
+				return
 			}
 			log.Info("Created replicated Secret", "targetNamespace", targetNS, "name", targetSecret.Name)
-			return nil
+			return
 		}
-		return fmt.Errorf("failed to get target Secret: %w", err)
+
+		// Unexpected error reading target
+		reasonMsg := r.getHumanReadableErrorReason(err)
+		r.EventRecorder.Eventf(sourceSecret, nil, corev1.EventTypeWarning, EventReasonPushFailed, "Push",
+			fmt.Sprintf("Could not access namespace %s: %s", targetNS, reasonMsg))
+		log.V(1).Info("Could not access namespace", "targetNamespace", targetNS, "reason", reasonMsg)
+		return
 	}
 
 	// Target exists - check if we own it
 	if !replicator.IsOwnedByUs(targetSecret, sourceRef) {
-		r.EventRecorder.Event(sourceSecret, corev1.EventTypeWarning, EventReasonPushFailed,
-			fmt.Sprintf("Secret %s/%s already exists and is not owned by this replication (no replicated-from annotation)", targetNS, sourceSecret.Name))
-		log.Info("Target Secret exists but is not owned by us", "targetNamespace", targetNS, "name", sourceSecret.Name)
-		return nil // Don't return error - just skip this target
+		r.EventRecorder.Eventf(sourceSecret, nil, corev1.EventTypeWarning, EventReasonPushFailed, "Push",
+			fmt.Sprintf("Secret already exists in namespace %s and is not managed by this replication", targetNS))
+		log.V(1).Info("Target Secret exists but is not owned by us", "targetNamespace", targetNS, "name", sourceSecret.Name)
+		return
 	}
 
 	// We own it - update it
 	replicator.ReplicateSecret(sourceSecret, targetSecret)
 	if err := r.Update(ctx, targetSecret); err != nil {
-		r.EventRecorder.Event(sourceSecret, corev1.EventTypeWarning, EventReasonPushFailed,
-			fmt.Sprintf("Failed to update Secret in namespace %s: %v", targetNS, err))
-		return fmt.Errorf("failed to update target Secret: %w", err)
+		reasonMsg := r.getHumanReadableErrorReason(err)
+		r.EventRecorder.Eventf(sourceSecret, nil, corev1.EventTypeWarning, EventReasonPushFailed, "Push",
+			fmt.Sprintf("Could not update Secret in namespace %s: %s", targetNS, reasonMsg))
+		log.V(1).Info("Could not update Secret in namespace", "targetNamespace", targetNS, "reason", reasonMsg)
+		return
 	}
 
 	log.Info("Updated replicated Secret", "targetNamespace", targetNS, "name", targetSecret.Name)
-	return nil
+}
+
+// getHumanReadableErrorReason converts API errors to human-readable reasons
+func (r *SecretReplicatorReconciler) getHumanReadableErrorReason(err error) string {
+	if apierrors.IsNotFound(err) {
+		return "namespace not found"
+	}
+	if apierrors.IsForbidden(err) {
+		return "permission denied"
+	}
+	if apierrors.IsUnauthorized(err) {
+		return "authentication failed"
+	}
+	if apierrors.IsInvalid(err) {
+		return "invalid resource"
+	}
+	if apierrors.IsServiceUnavailable(err) {
+		return "service temporarily unavailable"
+	}
+	// Return first 100 chars of error message for unexpected errors
+	errMsg := err.Error()
+	if len(errMsg) > 100 {
+		return errMsg[:100] + "..."
+	}
+	return errMsg
 }
 
 // handleDeletion handles cleanup when a source Secret with replicate-to is deleted
@@ -338,6 +371,12 @@ func (r *SecretReplicatorReconciler) SetupWithManagerAndName(mgr ctrl.Manager, n
 			handler.EnqueueRequestsFromMapFunc(r.findTargetsForSource),
 			builder.WithPredicates(sourcePredicate),
 		).
+		// Watch all Secrets to detect when a conflicting target is deleted
+		// This enables push-based replication to retry when the blocking Secret is removed
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.findPushSourcesForTarget),
+		).
 		Complete(r)
 }
 
@@ -381,6 +420,64 @@ func (r *SecretReplicatorReconciler) findTargetsForSource(ctx context.Context, o
 
 	if len(requests) > 0 {
 		log.Info("Triggering reconciliation of target Secrets", "source", sourceRef, "targetCount", len(requests))
+	}
+
+	return requests
+}
+
+// findPushSourcesForTarget finds all source Secrets that want to push to a namespace
+// where a Secret was deleted. This enables retry when a conflicting Secret is removed.
+func (r *SecretReplicatorReconciler) findPushSourcesForTarget(ctx context.Context, obj client.Object) []reconcile.Request {
+	secret, ok := obj.(*corev1.Secret)
+	if !ok {
+		return nil
+	}
+
+	log := log.FromContext(ctx)
+
+	// Find all Secrets with replicate-to annotation that includes this namespace
+	secretList := &corev1.SecretList{}
+	if err := r.List(ctx, secretList); err != nil {
+		log.Error(err, "failed to list Secrets for push source mapping")
+		return nil
+	}
+
+	var requests []reconcile.Request
+	for i := range secretList.Items {
+		source := &secretList.Items[i]
+		if source.Annotations == nil {
+			continue
+		}
+
+		// Check if this source pushes to the namespace where the Secret changed
+		replicateTo := source.Annotations[replicator.AnnotationReplicateTo]
+		if replicateTo == "" {
+			continue
+		}
+
+		// Check if the deleted/changed Secret has the same name and is in a target namespace
+		if source.Name != secret.Name {
+			continue
+		}
+
+		targetNamespaces := replicator.ParseTargetNamespaces(replicateTo)
+		for _, targetNS := range targetNamespaces {
+			if targetNS == secret.Namespace {
+				// This source wants to push to the namespace where the Secret changed
+				requests = append(requests, reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Namespace: source.Namespace,
+						Name:      source.Name,
+					},
+				})
+				log.V(1).Info("Found push source for target change", "source", fmt.Sprintf("%s/%s", source.Namespace, source.Name), "targetNamespace", secret.Namespace)
+				break
+			}
+		}
+	}
+
+	if len(requests) > 0 {
+		log.Info("Triggering reconciliation of push sources", "changedSecret", fmt.Sprintf("%s/%s", secret.Namespace, secret.Name), "sourceCount", len(requests))
 	}
 
 	return requests

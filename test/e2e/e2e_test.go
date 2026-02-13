@@ -222,6 +222,28 @@ func TestSecretAutoGeneration(t *testing.T) {
 		t.Error("Expected generated-at annotation to be set")
 	}
 
+	// Verify that a GenerationSucceeded event was created
+	// This catches RBAC issues and missing required event fields (like action)
+	events, err := clientset.EventsV1().Events(testNamespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		t.Fatalf("Failed to list events: %v", err)
+	}
+
+	var foundSuccessEvent bool
+	for _, event := range events.Items {
+		if event.Regarding.Name == "test-autogenerate" && event.Regarding.Kind == "Secret" {
+			if event.Type == "Normal" && event.Reason == "GenerationSucceeded" {
+				t.Logf("Found success event: %s - %s (action: %s)", event.Reason, event.Note, event.Action)
+				foundSuccessEvent = true
+				break
+			}
+		}
+	}
+
+	if !foundSuccessEvent {
+		t.Error("Expected event with Reason 'GenerationSucceeded' was not found. This may indicate RBAC issues (events.k8s.io permissions) or missing required event fields (action).")
+	}
+
 	t.Logf("Secret successfully processed with password length: %d", len(password))
 }
 
@@ -832,10 +854,8 @@ func TestSecretRotationMinIntervalValidation(t *testing.T) {
 		t.Fatalf("Failed waiting for password to be generated: %v", err)
 	}
 
-	// Check for warning events on the secret
-	events, err := clientset.CoreV1().Events(testNamespace).List(ctx, metav1.ListOptions{
-		FieldSelector: "involvedObject.name=test-rotation-min-interval,involvedObject.kind=Secret",
-	})
+	// Check for warning events on the secret (using new events.k8s.io/v1 API)
+	events, err := clientset.EventsV1().Events(testNamespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		t.Fatalf("Failed to list events: %v", err)
 	}
@@ -843,14 +863,16 @@ func TestSecretRotationMinIntervalValidation(t *testing.T) {
 	// Look for a warning event about rotation interval
 	var foundWarning bool
 	for _, event := range events.Items {
-		if event.Type == "Warning" && event.Reason == "RotationFailed" {
-			t.Logf("Found warning event: %s - %s", event.Reason, event.Message)
-			foundWarning = true
+		if event.Regarding.Name == "test-rotation-min-interval" && event.Regarding.Kind == "Secret" {
+			if event.Type == "Warning" && event.Reason == "RotationFailed" {
+				t.Logf("Found warning event: %s - %s", event.Reason, event.Note)
+				foundWarning = true
+			}
 		}
 	}
 
 	if !foundWarning {
-		t.Log("Note: Warning event not found. The operator may have used minInterval instead of rejecting the value.")
+		t.Error("Expected warning event with Reason 'RotationFailed' was not found. This may indicate RBAC issues or missing event fields.")
 	}
 
 	// Verify password length
@@ -1238,15 +1260,13 @@ func TestSecretCharsetInvalidConfiguration(t *testing.T) {
 		t.Fatalf("Failed to get secret: %v", err)
 	}
 
-	// Verify password was NOT generated
+	// Verify password was NOT generated - this is the primary validation
 	if _, ok := processedSecret.Data["password"]; ok {
-		t.Error("Expected password to NOT be generated with invalid charset configuration")
+		t.Fatal("Expected password to NOT be generated with invalid charset configuration")
 	}
 
-	// Check for warning event
-	events, err := clientset.CoreV1().Events(testNamespace).List(ctx, metav1.ListOptions{
-		FieldSelector: "involvedObject.name=test-charset-invalid-empty,involvedObject.kind=Secret",
-	})
+	// Check for warning event (using new events.k8s.io/v1 API)
+	events, err := clientset.EventsV1().Events(testNamespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		t.Fatalf("Failed to list events: %v", err)
 	}
@@ -1254,15 +1274,17 @@ func TestSecretCharsetInvalidConfiguration(t *testing.T) {
 	// Look for a warning event about invalid charset
 	var foundWarning bool
 	for _, event := range events.Items {
-		if event.Type == "Warning" && event.Reason == "GenerationFailed" {
-			t.Logf("Found warning event: %s - %s", event.Reason, event.Message)
-			foundWarning = true
-			break
+		if event.Regarding.Name == "test-charset-invalid-empty" && event.Regarding.Kind == "Secret" {
+			if event.Type == "Warning" && event.Reason == "GenerationFailed" {
+				t.Logf("Found warning event: %s - %s", event.Reason, event.Note)
+				foundWarning = true
+				break
+			}
 		}
 	}
 
 	if !foundWarning {
-		t.Error("Expected a warning event about invalid charset configuration")
+		t.Error("Expected warning event with Reason 'GenerationFailed' was not found. This may indicate RBAC issues or missing event fields.")
 	}
 
 	t.Log("Invalid charset configuration test passed - operator correctly rejected the configuration")

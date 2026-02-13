@@ -26,7 +26,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -84,6 +84,7 @@ const (
 	EventReasonGenerationSucceeded = "GenerationSucceeded"
 	EventReasonRotationSucceeded   = "RotationSucceeded"
 	EventReasonRotationFailed      = "RotationFailed"
+	EventReasonRotationDeferred    = "RotationDeferred"
 )
 
 // SecretReconciler reconciles a Secret object
@@ -92,7 +93,7 @@ type SecretReconciler struct {
 	Scheme        *runtime.Scheme
 	Generator     generator.Generator
 	Config        *config.Config
-	EventRecorder record.EventRecorder
+	EventRecorder events.EventRecorder
 	// Clock is used to get the current time. If nil, time.Now() is used.
 	// This allows for time mocking in tests.
 	Clock Clock
@@ -444,12 +445,12 @@ func (r *SecretReconciler) updateSecretAndEmitEvents(
 func (r *SecretReconciler) emitSuccessEvent(secret *corev1.Secret, rotated bool, logger logr.Logger) {
 	if rotated {
 		if r.Config.Rotation.CreateEvents {
-			r.EventRecorder.Event(secret, corev1.EventTypeNormal, EventReasonRotationSucceeded,
+			r.EventRecorder.Eventf(secret, nil, corev1.EventTypeNormal, EventReasonRotationSucceeded, "Rotate",
 				"Successfully rotated values for secret fields")
 		}
 		logger.Info("Successfully rotated Secret values")
 	} else {
-		r.EventRecorder.Event(secret, corev1.EventTypeNormal, EventReasonGenerationSucceeded,
+		r.EventRecorder.Eventf(secret, nil, corev1.EventTypeNormal, EventReasonGenerationSucceeded, "Generate",
 			"Successfully generated values for secret fields")
 		logger.Info("Successfully updated Secret with generated values")
 	}
@@ -470,6 +471,9 @@ type rotationCheckResult struct {
 	needsRotation     bool
 	rotationInterval  time.Duration
 	timeUntilRotation *time.Duration
+	deferred          bool       // true if rotation was deferred due to maintenance window
+	deferredUntil     *time.Time // when the next maintenance window starts
+	deferredWindow    string     // name of the window to defer to (for logging)
 	err               error
 	errMsg            string
 }
@@ -508,6 +512,29 @@ func (r *SecretReconciler) checkFieldRotation(annotations map[string]string, fie
 	if generatedAt != nil {
 		timeSinceGeneration := r.since(*generatedAt)
 		if timeSinceGeneration >= rotationInterval {
+			// Rotation is due - check if we're in a maintenance window
+			if r.Config.Rotation.MaintenanceWindows.Enabled {
+				now := r.now()
+				if !r.Config.Rotation.MaintenanceWindows.IsInAnyWindow(now) {
+					// Not in maintenance window - defer rotation
+					result.deferred = true
+					nextWindowStart := r.Config.Rotation.MaintenanceWindows.NextWindowStart(now)
+					if !nextWindowStart.IsZero() {
+						result.deferredUntil = &nextWindowStart
+						timeUntilWindow := nextWindowStart.Sub(now)
+						result.timeUntilRotation = &timeUntilWindow
+						// Find the window name for logging
+						for i := range r.Config.Rotation.MaintenanceWindows.Windows {
+							w := &r.Config.Rotation.MaintenanceWindows.Windows[i]
+							if w.NextStart(now).Equal(nextWindowStart) {
+								result.deferredWindow = w.Name
+								break
+							}
+						}
+					}
+					return result
+				}
+			}
 			result.needsRotation = true
 		} else {
 			timeUntilRotation := rotationInterval - timeSinceGeneration
@@ -542,13 +569,31 @@ func (r *SecretReconciler) generateFieldValue(
 	// Note: We still allow initial generation even if rotation interval is invalid
 	if rotationCheck.err != nil {
 		logger.Error(nil, rotationCheck.errMsg, "field", field)
-		r.EventRecorder.Event(secret, corev1.EventTypeWarning, EventReasonRotationFailed, rotationCheck.errMsg)
+		r.EventRecorder.Eventf(secret, nil, corev1.EventTypeWarning, EventReasonRotationFailed, "Rotate", rotationCheck.errMsg)
 		// If field exists, skip it (invalid rotation config prevents rotation)
 		// If field doesn't exist, we still generate the initial value
 		if fieldExists {
 			return result
 		}
 		// Continue to generate initial value, but rotation won't work
+	}
+
+	// Handle deferred rotation (outside maintenance window)
+	if rotationCheck.deferred && fieldExists {
+		windowInfo := ""
+		if rotationCheck.deferredWindow != "" {
+			windowInfo = fmt.Sprintf(" (window: %s)", rotationCheck.deferredWindow)
+		}
+		if rotationCheck.deferredUntil != nil {
+			msg := fmt.Sprintf("Rotation for field %q deferred until next maintenance window at %s%s",
+				field, rotationCheck.deferredUntil.Format(time.RFC3339), windowInfo)
+			logger.Info(msg, "field", field, "deferredUntil", rotationCheck.deferredUntil)
+			r.EventRecorder.Eventf(secret, nil, corev1.EventTypeNormal, EventReasonRotationDeferred, "Rotate", msg)
+		} else {
+			msg := fmt.Sprintf("Rotation for field %q deferred - no maintenance window configured", field)
+			logger.Info(msg, "field", field)
+		}
+		return result
 	}
 
 	// Skip if field already has a value and doesn't need rotation
@@ -573,7 +618,7 @@ func (r *SecretReconciler) generateFieldValue(
 			result.errMsg = fmt.Sprintf("Invalid charset configuration for field %q: %v", field, charsetErr)
 			result.skipRest = true
 			logger.Error(charsetErr, "Invalid charset configuration", "field", field)
-			r.EventRecorder.Event(secret, corev1.EventTypeWarning, EventReasonGenerationFailed, result.errMsg)
+			r.EventRecorder.Eventf(secret, nil, corev1.EventTypeWarning, EventReasonGenerationFailed, "Generate", result.errMsg)
 			return result
 		}
 		value, err = r.Generator.GenerateWithCharset(genType, length, charset)
@@ -587,7 +632,7 @@ func (r *SecretReconciler) generateFieldValue(
 		result.errMsg = fmt.Sprintf("Failed to generate value for field %q: %v", field, err)
 		result.skipRest = true
 		logger.Error(err, "Failed to generate value", "field", field, "type", genType)
-		r.EventRecorder.Event(secret, corev1.EventTypeWarning, EventReasonGenerationFailed, result.errMsg)
+		r.EventRecorder.Eventf(secret, nil, corev1.EventTypeWarning, EventReasonGenerationFailed, "Generate", result.errMsg)
 		return result
 	}
 

@@ -2,7 +2,7 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended",
-    ":assignee(hansfischer)",
+    ":assignee(hans-fischer)",
     ":semanticCommits",
     ":automergeDigest",
     ":automergeBranch"
@@ -15,6 +15,7 @@
   "platformAutomerge": true,
   "automergeType": "pr",
   "automergeStrategy": "squash",
+  "ignoreTests": false,
   "prConcurrentLimit": 5,
   "rebaseWhen": "conflicted",
   "postUpdateOptions": [
@@ -176,6 +177,16 @@
       "matchPackageNames": [
         "/^k8s.io//",
         "/^sigs.k8s.io//"
+      ]
+    },
+    {
+      "description": "Use 'fix' instead of 'chore' for dependency updates",
+      "semanticCommitType": "fix",
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest",
+        "pin"
       ]
     }
   ],

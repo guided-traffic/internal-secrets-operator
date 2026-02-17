@@ -17,6 +17,11 @@ limitations under the License.
 package generator
 
 import (
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/x509"
+	"encoding/pem"
 	"strings"
 	"testing"
 
@@ -152,6 +157,9 @@ func TestGenerate(t *testing.T) {
 		{"empty type defaults to string", "", 32, false},
 		{"bytes type", "bytes", 32, false},
 		{"unknown type", "unknown", 32, true},
+		{"rsa type errors via Generate", "rsa", 2048, true},
+		{"ecdsa type errors via Generate", "ecdsa", 256, true},
+		{"ed25519 type errors via Generate", "ed25519", 256, true},
 	}
 
 	for _, tt := range tests {
@@ -254,6 +262,9 @@ func TestGenerateWithCharset(t *testing.T) {
 		{"string with empty charset", "string", 16, "", true},
 		{"zero length string", "string", 0, "abc", true},
 		{"zero length bytes", "bytes", 0, "abc", true},
+		{"rsa type errors via GenerateWithCharset", "rsa", 2048, "abc", true},
+		{"ecdsa type errors via GenerateWithCharset", "ecdsa", 256, "abc", true},
+		{"ed25519 type errors via GenerateWithCharset", "ed25519", 256, "abc", true},
 	}
 
 	for _, tt := range tests {
@@ -276,5 +287,197 @@ func TestGenerateWithCharset(t *testing.T) {
 				t.Error("expected non-empty result")
 			}
 		})
+	}
+}
+
+func TestGenerateRSAKeypair(t *testing.T) {
+	gen := NewSecretGenerator()
+
+	tests := []struct {
+		name      string
+		bits      int
+		wantError bool
+	}{
+		{"RSA 2048-bit", 2048, false},
+		{"RSA 4096-bit", 4096, false},
+		{"RSA 1024-bit minimum", 1024, false},
+		{"RSA too small", 512, true},
+		{"RSA zero bits", 0, true},
+		{"RSA negative bits", -1, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			privateKeyPEM, publicKeyPEM, err := gen.GenerateRSAKeypair(tt.bits)
+
+			if tt.wantError {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.NotEmpty(t, privateKeyPEM)
+			assert.NotEmpty(t, publicKeyPEM)
+
+			// Verify private key PEM format
+			assert.True(t, strings.HasPrefix(privateKeyPEM, "-----BEGIN RSA PRIVATE KEY-----"))
+			assert.True(t, strings.HasSuffix(strings.TrimSpace(privateKeyPEM), "-----END RSA PRIVATE KEY-----"))
+
+			// Verify public key PEM format
+			assert.True(t, strings.HasPrefix(publicKeyPEM, "-----BEGIN RSA PUBLIC KEY-----"))
+			assert.True(t, strings.HasSuffix(strings.TrimSpace(publicKeyPEM), "-----END RSA PUBLIC KEY-----"))
+
+			// Verify private key can be parsed
+			block, _ := pem.Decode([]byte(privateKeyPEM))
+			require.NotNil(t, block, "failed to decode private key PEM")
+			privateKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+			require.NoError(t, err)
+			assert.Equal(t, tt.bits, privateKey.N.BitLen())
+
+			// Verify public key can be parsed
+			block, _ = pem.Decode([]byte(publicKeyPEM))
+			require.NotNil(t, block, "failed to decode public key PEM")
+			publicKey, err := x509.ParsePKCS1PublicKey(block.Bytes)
+			require.NoError(t, err)
+			assert.Equal(t, tt.bits, publicKey.N.BitLen())
+		})
+	}
+}
+
+func TestGenerateRSAKeypairUniqueness(t *testing.T) {
+	gen := NewSecretGenerator()
+	priv1, _, err := gen.GenerateRSAKeypair(2048)
+	require.NoError(t, err)
+	priv2, _, err := gen.GenerateRSAKeypair(2048)
+	require.NoError(t, err)
+	assert.NotEqual(t, priv1, priv2, "two generated RSA keys should be different")
+}
+
+func TestGenerateECDSAKeypair(t *testing.T) {
+	gen := NewSecretGenerator()
+
+	tests := []struct {
+		name      string
+		curve     string
+		wantCurve elliptic.Curve
+		wantError bool
+	}{
+		{"P-256", "P-256", elliptic.P256(), false},
+		{"P-384", "P-384", elliptic.P384(), false},
+		{"P-521", "P-521", elliptic.P521(), false},
+		{"invalid curve", "P-999", nil, true},
+		{"empty curve", "", nil, true},
+		{"lowercase curve", "p-256", nil, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			privateKeyPEM, publicKeyPEM, err := gen.GenerateECDSAKeypair(tt.curve)
+
+			if tt.wantError {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.NotEmpty(t, privateKeyPEM)
+			assert.NotEmpty(t, publicKeyPEM)
+
+			// Verify private key PEM format
+			assert.True(t, strings.HasPrefix(privateKeyPEM, "-----BEGIN EC PRIVATE KEY-----"))
+			assert.True(t, strings.HasSuffix(strings.TrimSpace(privateKeyPEM), "-----END EC PRIVATE KEY-----"))
+
+			// Verify public key PEM format
+			assert.True(t, strings.HasPrefix(publicKeyPEM, "-----BEGIN PUBLIC KEY-----"))
+			assert.True(t, strings.HasSuffix(strings.TrimSpace(publicKeyPEM), "-----END PUBLIC KEY-----"))
+
+			// Verify private key can be parsed
+			block, _ := pem.Decode([]byte(privateKeyPEM))
+			require.NotNil(t, block, "failed to decode private key PEM")
+			privateKey, err := x509.ParseECPrivateKey(block.Bytes)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantCurve, privateKey.Curve)
+
+			// Verify public key can be parsed
+			block, _ = pem.Decode([]byte(publicKeyPEM))
+			require.NotNil(t, block, "failed to decode public key PEM")
+			pubKeyInterface, err := x509.ParsePKIXPublicKey(block.Bytes)
+			require.NoError(t, err)
+			ecdsaPubKey, ok := pubKeyInterface.(*ecdsa.PublicKey)
+			require.True(t, ok, "parsed public key is not ECDSA")
+			assert.Equal(t, tt.wantCurve, ecdsaPubKey.Curve)
+		})
+	}
+}
+
+func TestGenerateECDSAKeypairUniqueness(t *testing.T) {
+	gen := NewSecretGenerator()
+	priv1, _, err := gen.GenerateECDSAKeypair("P-256")
+	require.NoError(t, err)
+	priv2, _, err := gen.GenerateECDSAKeypair("P-256")
+	require.NoError(t, err)
+	assert.NotEqual(t, priv1, priv2, "two generated ECDSA keys should be different")
+}
+
+func TestGenerateEd25519Keypair(t *testing.T) {
+	gen := NewSecretGenerator()
+
+	privateKeyPEM, publicKeyPEM, err := gen.GenerateEd25519Keypair()
+	require.NoError(t, err)
+	assert.NotEmpty(t, privateKeyPEM)
+	assert.NotEmpty(t, publicKeyPEM)
+
+	// Verify private key PEM format
+	assert.True(t, strings.HasPrefix(privateKeyPEM, "-----BEGIN PRIVATE KEY-----"))
+	assert.True(t, strings.HasSuffix(strings.TrimSpace(privateKeyPEM), "-----END PRIVATE KEY-----"))
+
+	// Verify public key PEM format
+	assert.True(t, strings.HasPrefix(publicKeyPEM, "-----BEGIN PUBLIC KEY-----"))
+	assert.True(t, strings.HasSuffix(strings.TrimSpace(publicKeyPEM), "-----END PUBLIC KEY-----"))
+
+	// Verify private key can be parsed
+	block, _ := pem.Decode([]byte(privateKeyPEM))
+	require.NotNil(t, block, "failed to decode private key PEM")
+	privKeyInterface, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	require.NoError(t, err)
+	_, ok := privKeyInterface.(ed25519.PrivateKey)
+	require.True(t, ok, "parsed private key is not Ed25519")
+
+	// Verify public key can be parsed
+	block, _ = pem.Decode([]byte(publicKeyPEM))
+	require.NotNil(t, block, "failed to decode public key PEM")
+	pubKeyInterface, err := x509.ParsePKIXPublicKey(block.Bytes)
+	require.NoError(t, err)
+	_, ok = pubKeyInterface.(ed25519.PublicKey)
+	require.True(t, ok, "parsed public key is not Ed25519")
+}
+
+func TestGenerateEd25519KeypairUniqueness(t *testing.T) {
+	gen := NewSecretGenerator()
+	priv1, _, err := gen.GenerateEd25519Keypair()
+	require.NoError(t, err)
+	priv2, _, err := gen.GenerateEd25519Keypair()
+	require.NoError(t, err)
+	assert.NotEqual(t, priv1, priv2, "two generated Ed25519 keys should be different")
+}
+
+func BenchmarkGenerateRSAKeypair2048(b *testing.B) {
+	gen := NewSecretGenerator()
+	for i := 0; i < b.N; i++ {
+		_, _, _ = gen.GenerateRSAKeypair(2048)
+	}
+}
+
+func BenchmarkGenerateECDSAKeypairP256(b *testing.B) {
+	gen := NewSecretGenerator()
+	for i := 0; i < b.N; i++ {
+		_, _, _ = gen.GenerateECDSAKeypair("P-256")
+	}
+}
+
+func BenchmarkGenerateEd25519Keypair(b *testing.B) {
+	gen := NewSecretGenerator()
+	for i := 0; i < b.N; i++ {
+		_, _, _ = gen.GenerateEd25519Keypair()
 	}
 }

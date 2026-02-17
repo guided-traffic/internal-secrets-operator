@@ -17,7 +17,13 @@ limitations under the License.
 package generator
 
 import (
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 
 	"github.com/guided-traffic/internal-secrets-operator/pkg/config"
@@ -31,6 +37,16 @@ type Generator interface {
 	GenerateStringWithCharset(length int, charset string) (string, error)
 	// GenerateBytes generates random bytes of the specified length
 	GenerateBytes(length int) ([]byte, error)
+	// GenerateRSAKeypair generates an RSA keypair with the given key size in bits.
+	// Returns (privateKeyPEM, publicKeyPEM, error).
+	GenerateRSAKeypair(bits int) (string, string, error)
+	// GenerateECDSAKeypair generates an ECDSA keypair for the given curve name.
+	// Supported curves: P-256, P-384, P-521.
+	// Returns (privateKeyPEM, publicKeyPEM, error).
+	GenerateECDSAKeypair(curveName string) (string, string, error)
+	// GenerateEd25519Keypair generates an Ed25519 keypair.
+	// Returns (privateKeyPEM, publicKeyPEM, error).
+	GenerateEd25519Keypair() (string, string, error)
 	// Generate generates a value based on the specified type
 	Generate(genType string, length int) (string, error)
 	// GenerateWithCharset generates a value based on the specified type with a custom charset
@@ -124,7 +140,117 @@ func (g *SecretGenerator) GenerateWithCharset(genType string, length int, charse
 			return "", err
 		}
 		return string(bytes), nil
+	case config.TypeRSA, config.TypeECDSA, config.TypeEd25519:
+		return "", fmt.Errorf("keypair types must be generated using dedicated keypair methods, not GenerateWithCharset")
 	default:
 		return "", fmt.Errorf("unknown generation type: %s", genType)
+	}
+}
+
+// GenerateRSAKeypair generates an RSA keypair with the given key size in bits.
+// Returns the private key and public key in PKCS#1 PEM format.
+func (g *SecretGenerator) GenerateRSAKeypair(bits int) (string, string, error) {
+	if bits < 1024 {
+		return "", "", fmt.Errorf("RSA key size must be at least 1024 bits, got %d", bits)
+	}
+
+	privateKey, err := rsa.GenerateKey(rand.Reader, bits)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to generate RSA key: %w", err)
+	}
+
+	// Encode private key in PKCS#1 PEM format
+	privateKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
+	})
+
+	// Encode public key in PKCS#1 PEM format
+	publicKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PUBLIC KEY",
+		Bytes: x509.MarshalPKCS1PublicKey(&privateKey.PublicKey),
+	})
+
+	return string(privateKeyPEM), string(publicKeyPEM), nil
+}
+
+// GenerateECDSAKeypair generates an ECDSA keypair for the given curve name.
+// Returns the private key in EC PEM format and public key in PKIX PEM format.
+func (g *SecretGenerator) GenerateECDSAKeypair(curveName string) (string, string, error) {
+	curve, err := parseCurve(curveName)
+	if err != nil {
+		return "", "", err
+	}
+
+	privateKey, err := ecdsa.GenerateKey(curve, rand.Reader)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to generate ECDSA key: %w", err)
+	}
+
+	// Encode private key in EC PEM format (SEC 1 / RFC 5915)
+	ecPrivateKeyBytes, err := x509.MarshalECPrivateKey(privateKey)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to marshal ECDSA private key: %w", err)
+	}
+	privateKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "EC PRIVATE KEY",
+		Bytes: ecPrivateKeyBytes,
+	})
+
+	// Encode public key in PKIX PEM format
+	publicKeyBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to marshal ECDSA public key: %w", err)
+	}
+	publicKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: publicKeyBytes,
+	})
+
+	return string(privateKeyPEM), string(publicKeyPEM), nil
+}
+
+// GenerateEd25519Keypair generates an Ed25519 keypair.
+// Returns the private key and public key in PKCS#8/PKIX PEM format.
+func (g *SecretGenerator) GenerateEd25519Keypair() (string, string, error) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to generate Ed25519 key: %w", err)
+	}
+
+	// Encode private key in PKCS#8 PEM format
+	pkcs8Bytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to marshal Ed25519 private key: %w", err)
+	}
+	privateKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "PRIVATE KEY",
+		Bytes: pkcs8Bytes,
+	})
+
+	// Encode public key in PKIX PEM format
+	publicKeyBytes, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to marshal Ed25519 public key: %w", err)
+	}
+	publicKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: publicKeyBytes,
+	})
+
+	return string(privateKeyPEM), string(publicKeyPEM), nil
+}
+
+// parseCurve parses a curve name string into an elliptic.Curve
+func parseCurve(curveName string) (elliptic.Curve, error) {
+	switch curveName {
+	case "P-256":
+		return elliptic.P256(), nil
+	case "P-384":
+		return elliptic.P384(), nil
+	case "P-521":
+		return elliptic.P521(), nil
+	default:
+		return nil, fmt.Errorf("unsupported ECDSA curve: %s, must be 'P-256', 'P-384', or 'P-521'", curveName)
 	}
 }

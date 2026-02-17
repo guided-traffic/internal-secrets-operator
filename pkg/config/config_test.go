@@ -286,6 +286,39 @@ func TestConfigValidate(t *testing.T) {
 			wantError: false,
 		},
 		{
+			name: "valid rsa type",
+			config: &Config{
+				Defaults: DefaultsConfig{
+					Type:   "rsa",
+					Length: 2048,
+					String: StringOptions{Uppercase: true},
+				},
+			},
+			wantError: false,
+		},
+		{
+			name: "valid ecdsa type",
+			config: &Config{
+				Defaults: DefaultsConfig{
+					Type:   "ecdsa",
+					Length: 32,
+					String: StringOptions{Uppercase: true},
+				},
+			},
+			wantError: false,
+		},
+		{
+			name: "valid ed25519 type",
+			config: &Config{
+				Defaults: DefaultsConfig{
+					Type:   "ed25519",
+					Length: 32,
+					String: StringOptions{Uppercase: true},
+				},
+			},
+			wantError: false,
+		},
+		{
 			name: "valid with only numbers",
 			config: &Config{
 				Defaults: DefaultsConfig{

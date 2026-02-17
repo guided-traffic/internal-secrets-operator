@@ -41,6 +41,8 @@ const (
 	AnnotationLength       = AnnotationPrefix + "length"
 	AnnotationTypePrefix   = AnnotationPrefix + "type."
 	AnnotationLengthPrefix = AnnotationPrefix + "length."
+	AnnotationCurve        = AnnotationPrefix + "curve"
+	AnnotationCurvePrefix  = AnnotationPrefix + "curve."
 	AnnotationGeneratedAt  = AnnotationPrefix + "generated-at"
 
 	// Test timeouts
@@ -671,4 +673,292 @@ func TestConfigDefaults(t *testing.T) {
 	if len(password) != 48 {
 		t.Errorf("expected password length 48 (from config default), got %d", len(password))
 	}
+}
+
+// TestKeypairGeneration runs integration tests for RSA, ECDSA, and Ed25519 keypair generation
+func TestKeypairGeneration(t *testing.T) {
+	tc := setupTestManager(t, nil)
+	ns := createNamespace(t, tc.client)
+	defer tc.cleanup(t, ns)
+
+	ctx := context.Background()
+
+	t.Run("RSAKeypairGeneration", func(t *testing.T) {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-rsa-keypair",
+				Namespace: ns.Name,
+				Annotations: map[string]string{
+					AnnotationAutogenerate:             "tls-key",
+					AnnotationTypePrefix + "tls-key":   "rsa",
+					AnnotationLengthPrefix + "tls-key": "2048",
+				},
+			},
+			Type: corev1.SecretTypeOpaque,
+		}
+
+		if err := tc.client.Create(ctx, secret); err != nil {
+			t.Fatalf("failed to create secret: %v", err)
+		}
+
+		key := types.NamespacedName{Name: secret.Name, Namespace: ns.Name}
+		updatedSecret, err := waitForSecretField(ctx, tc.client, key, "tls-key")
+		if err != nil {
+			t.Fatalf("failed to get secret: %v", err)
+		}
+
+		// Verify private key
+		privateKey, ok := updatedSecret.Data["tls-key"]
+		if !ok {
+			t.Fatal("expected tls-key field to be generated")
+		}
+		if !strings.HasPrefix(string(privateKey), "-----BEGIN RSA PRIVATE KEY-----") {
+			t.Error("expected RSA private key PEM format")
+		}
+
+		// Verify public key
+		publicKey, ok := updatedSecret.Data["tls-key.pub"]
+		if !ok {
+			t.Fatal("expected tls-key.pub field to be generated")
+		}
+		if !strings.HasPrefix(string(publicKey), "-----BEGIN RSA PUBLIC KEY-----") {
+			t.Error("expected RSA public key PEM format")
+		}
+
+		if _, ok := updatedSecret.Annotations[AnnotationGeneratedAt]; !ok {
+			t.Error("expected generated-at annotation")
+		}
+	})
+
+	t.Run("ECDSAKeypairGeneration", func(t *testing.T) {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-ecdsa-keypair",
+				Namespace: ns.Name,
+				Annotations: map[string]string{
+					AnnotationAutogenerate:                 "signing-key",
+					AnnotationTypePrefix + "signing-key":   "ecdsa",
+					AnnotationCurvePrefix + "signing-key": "P-384",
+				},
+			},
+			Type: corev1.SecretTypeOpaque,
+		}
+
+		if err := tc.client.Create(ctx, secret); err != nil {
+			t.Fatalf("failed to create secret: %v", err)
+		}
+
+		key := types.NamespacedName{Name: secret.Name, Namespace: ns.Name}
+		updatedSecret, err := waitForSecretField(ctx, tc.client, key, "signing-key")
+		if err != nil {
+			t.Fatalf("failed to get secret: %v", err)
+		}
+
+		// Verify private key
+		privateKey, ok := updatedSecret.Data["signing-key"]
+		if !ok {
+			t.Fatal("expected signing-key field to be generated")
+		}
+		if !strings.HasPrefix(string(privateKey), "-----BEGIN EC PRIVATE KEY-----") {
+			t.Error("expected EC private key PEM format")
+		}
+
+		// Verify public key
+		publicKey, ok := updatedSecret.Data["signing-key.pub"]
+		if !ok {
+			t.Fatal("expected signing-key.pub field to be generated")
+		}
+		if !strings.HasPrefix(string(publicKey), "-----BEGIN PUBLIC KEY-----") {
+			t.Error("expected public key PEM format")
+		}
+	})
+
+	t.Run("ECDSAKeypairDefaultCurve", func(t *testing.T) {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-ecdsa-default-curve",
+				Namespace: ns.Name,
+				Annotations: map[string]string{
+					AnnotationAutogenerate:               "signing-key",
+					AnnotationTypePrefix + "signing-key": "ecdsa",
+					// No curve annotation → default P-256
+				},
+			},
+			Type: corev1.SecretTypeOpaque,
+		}
+
+		if err := tc.client.Create(ctx, secret); err != nil {
+			t.Fatalf("failed to create secret: %v", err)
+		}
+
+		key := types.NamespacedName{Name: secret.Name, Namespace: ns.Name}
+		updatedSecret, err := waitForSecretField(ctx, tc.client, key, "signing-key")
+		if err != nil {
+			t.Fatalf("failed to get secret: %v", err)
+		}
+
+		if _, ok := updatedSecret.Data["signing-key"]; !ok {
+			t.Fatal("expected signing-key field to be generated")
+		}
+		if _, ok := updatedSecret.Data["signing-key.pub"]; !ok {
+			t.Fatal("expected signing-key.pub field to be generated")
+		}
+	})
+
+	t.Run("Ed25519KeypairGeneration", func(t *testing.T) {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-ed25519-keypair",
+				Namespace: ns.Name,
+				Annotations: map[string]string{
+					AnnotationAutogenerate:             "ssh-key",
+					AnnotationTypePrefix + "ssh-key": "ed25519",
+				},
+			},
+			Type: corev1.SecretTypeOpaque,
+		}
+
+		if err := tc.client.Create(ctx, secret); err != nil {
+			t.Fatalf("failed to create secret: %v", err)
+		}
+
+		key := types.NamespacedName{Name: secret.Name, Namespace: ns.Name}
+		updatedSecret, err := waitForSecretField(ctx, tc.client, key, "ssh-key")
+		if err != nil {
+			t.Fatalf("failed to get secret: %v", err)
+		}
+
+		// Verify private key
+		privateKey, ok := updatedSecret.Data["ssh-key"]
+		if !ok {
+			t.Fatal("expected ssh-key field to be generated")
+		}
+		if !strings.HasPrefix(string(privateKey), "-----BEGIN PRIVATE KEY-----") {
+			t.Error("expected private key PEM format")
+		}
+
+		// Verify public key
+		publicKey, ok := updatedSecret.Data["ssh-key.pub"]
+		if !ok {
+			t.Fatal("expected ssh-key.pub field to be generated")
+		}
+		if !strings.HasPrefix(string(publicKey), "-----BEGIN PUBLIC KEY-----") {
+			t.Error("expected public key PEM format")
+		}
+	})
+
+	t.Run("MixedKeypairAndStringGeneration", func(t *testing.T) {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-mixed-keypair",
+				Namespace: ns.Name,
+				Annotations: map[string]string{
+					AnnotationAutogenerate:               "password,tls-key,signing-key,ssh-key",
+					AnnotationType:                        "string",
+					AnnotationLength:                      "24",
+					AnnotationTypePrefix + "tls-key":     "rsa",
+					AnnotationLengthPrefix + "tls-key":   "2048",
+					AnnotationTypePrefix + "signing-key": "ecdsa",
+					AnnotationCurvePrefix + "signing-key": "P-256",
+					AnnotationTypePrefix + "ssh-key":     "ed25519",
+				},
+			},
+			Type: corev1.SecretTypeOpaque,
+		}
+
+		if err := tc.client.Create(ctx, secret); err != nil {
+			t.Fatalf("failed to create secret: %v", err)
+		}
+
+		key := types.NamespacedName{Name: secret.Name, Namespace: ns.Name}
+		updatedSecret, err := waitForSecretField(ctx, tc.client, key, "password")
+		if err != nil {
+			t.Fatalf("failed to get secret: %v", err)
+		}
+
+		// Wait a bit for all fields to be populated
+		time.Sleep(2 * time.Second)
+		if err := tc.client.Get(ctx, key, updatedSecret); err != nil {
+			t.Fatalf("failed to re-fetch secret: %v", err)
+		}
+
+		// Verify password (string)
+		password, ok := updatedSecret.Data["password"]
+		if !ok {
+			t.Fatal("expected password field")
+		}
+		if len(password) != 24 {
+			t.Errorf("expected password length 24, got %d", len(password))
+		}
+
+		// Verify RSA keypair
+		if _, ok := updatedSecret.Data["tls-key"]; !ok {
+			t.Fatal("expected tls-key field")
+		}
+		if _, ok := updatedSecret.Data["tls-key.pub"]; !ok {
+			t.Fatal("expected tls-key.pub field")
+		}
+
+		// Verify ECDSA keypair
+		if _, ok := updatedSecret.Data["signing-key"]; !ok {
+			t.Fatal("expected signing-key field")
+		}
+		if _, ok := updatedSecret.Data["signing-key.pub"]; !ok {
+			t.Fatal("expected signing-key.pub field")
+		}
+
+		// Verify Ed25519 keypair
+		if _, ok := updatedSecret.Data["ssh-key"]; !ok {
+			t.Fatal("expected ssh-key field")
+		}
+		if _, ok := updatedSecret.Data["ssh-key.pub"]; !ok {
+			t.Fatal("expected ssh-key.pub field")
+		}
+
+		// Verify no .pub for string type
+		if _, ok := updatedSecret.Data["password.pub"]; ok {
+			t.Error("string type should not generate a .pub field")
+		}
+	})
+
+	t.Run("KeypairExistingValuePreserved", func(t *testing.T) {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-keypair-existing",
+				Namespace: ns.Name,
+				Annotations: map[string]string{
+					AnnotationAutogenerate:             "tls-key",
+					AnnotationTypePrefix + "tls-key":   "rsa",
+					AnnotationLengthPrefix + "tls-key": "2048",
+				},
+			},
+			Type: corev1.SecretTypeOpaque,
+			Data: map[string][]byte{
+				"tls-key": []byte("existing-private-key"),
+			},
+		}
+
+		if err := tc.client.Create(ctx, secret); err != nil {
+			t.Fatalf("failed to create secret: %v", err)
+		}
+
+		// Wait for reconciliation
+		time.Sleep(3 * time.Second)
+
+		key := types.NamespacedName{Name: secret.Name, Namespace: ns.Name}
+		var updatedSecret corev1.Secret
+		if err := tc.client.Get(ctx, key, &updatedSecret); err != nil {
+			t.Fatalf("failed to get secret: %v", err)
+		}
+
+		// Existing value should be preserved
+		if string(updatedSecret.Data["tls-key"]) != "existing-private-key" {
+			t.Error("expected existing private key to be preserved")
+		}
+
+		// No public key should be generated
+		if _, ok := updatedSecret.Data["tls-key.pub"]; ok {
+			t.Error("expected no public key when private key already exists")
+		}
+	})
 }

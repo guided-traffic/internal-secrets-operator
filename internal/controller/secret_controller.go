@@ -493,6 +493,87 @@ type fieldGenerationResult struct {
 	skipRest   bool // if true, skip remaining fields and return error
 }
 
+// valueGenerationResult contains the result of generating a value for a field.
+type valueGenerationResult struct {
+	value     []byte
+	publicKey []byte // For keypair types: the public key value
+	err       error
+	errMsg    string
+}
+
+// generateValue generates the raw value for a field based on its type and length.
+// It returns the generated value (and public key for keypair types) or an error.
+func (r *SecretReconciler) generateValue(
+	secret *corev1.Secret,
+	field string,
+	genType string,
+	length int,
+) valueGenerationResult {
+	switch genType {
+	case config.TypeRSA:
+		return r.generateKeypairValue(field, genType, func() (string, string, error) {
+			return r.Generator.GenerateRSAKeypair(length)
+		})
+
+	case config.TypeECDSA:
+		curveName := r.getFieldCurve(secret.Annotations, field)
+		return r.generateKeypairValue(field, genType, func() (string, string, error) {
+			return r.Generator.GenerateECDSAKeypair(curveName)
+		})
+
+	case config.TypeEd25519:
+		return r.generateKeypairValue(field, genType, r.Generator.GenerateEd25519Keypair)
+
+	case "string", "":
+		charset, charsetErr := r.getCharsetFromAnnotations(secret.Annotations)
+		if charsetErr != nil {
+			return valueGenerationResult{
+				err:    fmt.Errorf("invalid charset configuration for field %s: %w", field, charsetErr),
+				errMsg: fmt.Sprintf("Invalid charset configuration for field %q: %v", field, charsetErr),
+			}
+		}
+		value, genErr := r.Generator.GenerateWithCharset(genType, length, charset)
+		if genErr != nil {
+			return valueGenerationResult{
+				err:    fmt.Errorf("failed to generate value for field %s: %w", field, genErr),
+				errMsg: fmt.Sprintf("Failed to generate value for field %q: %v", field, genErr),
+			}
+		}
+		return valueGenerationResult{value: []byte(value)}
+
+	default:
+		// For bytes and any other type, use default Generate method
+		value, genErr := r.Generator.Generate(genType, length)
+		if genErr != nil {
+			return valueGenerationResult{
+				err:    fmt.Errorf("failed to generate value for field %s: %w", field, genErr),
+				errMsg: fmt.Sprintf("Failed to generate value for field %q: %v", field, genErr),
+			}
+		}
+		return valueGenerationResult{value: []byte(value)}
+	}
+}
+
+// generateKeypairValue is a helper that generates a keypair using the provided function
+// and wraps the result in a valueGenerationResult.
+func (r *SecretReconciler) generateKeypairValue(
+	field string,
+	genType string,
+	genFunc func() (string, string, error),
+) valueGenerationResult {
+	privateKeyPEM, publicKeyPEM, err := genFunc()
+	if err != nil {
+		return valueGenerationResult{
+			err:    fmt.Errorf("failed to generate %s keypair for field %s: %w", genType, field, err),
+			errMsg: fmt.Sprintf("Failed to generate %s keypair for field %q: %v", genType, field, err),
+		}
+	}
+	return valueGenerationResult{
+		value:     []byte(privateKeyPEM),
+		publicKey: []byte(publicKeyPEM),
+	}
+}
+
 // rotationCheckResult contains the result of checking if a field needs rotation
 type rotationCheckResult struct {
 	needsRotation     bool
@@ -634,81 +715,17 @@ func (r *SecretReconciler) generateFieldValue(
 	length := r.getFieldLength(secret.Annotations, field)
 
 	// Generate the value based on type
-	switch genType {
-	case config.TypeRSA:
-		privateKeyPEM, publicKeyPEM, keypairErr := r.Generator.GenerateRSAKeypair(length)
-		if keypairErr != nil {
-			result.err = fmt.Errorf("failed to generate RSA keypair for field %s: %w", field, keypairErr)
-			result.errMsg = fmt.Sprintf("Failed to generate RSA keypair for field %q: %v", field, keypairErr)
-			result.skipRest = true
-			logger.Error(keypairErr, "Failed to generate RSA keypair", "field", field, "bits", length)
-			r.EventRecorder.Eventf(secret, nil, corev1.EventTypeWarning, EventReasonGenerationFailed, "Generate", result.errMsg)
-			return result
-		}
-		result.value = []byte(privateKeyPEM)
-		result.publicKey = []byte(publicKeyPEM)
-
-	case config.TypeECDSA:
-		curveName := r.getFieldCurve(secret.Annotations, field)
-		privateKeyPEM, publicKeyPEM, keypairErr := r.Generator.GenerateECDSAKeypair(curveName)
-		if keypairErr != nil {
-			result.err = fmt.Errorf("failed to generate ECDSA keypair for field %s: %w", field, keypairErr)
-			result.errMsg = fmt.Sprintf("Failed to generate ECDSA keypair for field %q: %v", field, keypairErr)
-			result.skipRest = true
-			logger.Error(keypairErr, "Failed to generate ECDSA keypair", "field", field, "curve", curveName)
-			r.EventRecorder.Eventf(secret, nil, corev1.EventTypeWarning, EventReasonGenerationFailed, "Generate", result.errMsg)
-			return result
-		}
-		result.value = []byte(privateKeyPEM)
-		result.publicKey = []byte(publicKeyPEM)
-
-	case config.TypeEd25519:
-		privateKeyPEM, publicKeyPEM, keypairErr := r.Generator.GenerateEd25519Keypair()
-		if keypairErr != nil {
-			result.err = fmt.Errorf("failed to generate Ed25519 keypair for field %s: %w", field, keypairErr)
-			result.errMsg = fmt.Sprintf("Failed to generate Ed25519 keypair for field %q: %v", field, keypairErr)
-			result.skipRest = true
-			logger.Error(keypairErr, "Failed to generate Ed25519 keypair", "field", field)
-			r.EventRecorder.Eventf(secret, nil, corev1.EventTypeWarning, EventReasonGenerationFailed, "Generate", result.errMsg)
-			return result
-		}
-		result.value = []byte(privateKeyPEM)
-		result.publicKey = []byte(publicKeyPEM)
-
-	case "string", "":
-		charset, charsetErr := r.getCharsetFromAnnotations(secret.Annotations)
-		if charsetErr != nil {
-			result.err = fmt.Errorf("invalid charset configuration for field %s: %w", field, charsetErr)
-			result.errMsg = fmt.Sprintf("Invalid charset configuration for field %q: %v", field, charsetErr)
-			result.skipRest = true
-			logger.Error(charsetErr, "Invalid charset configuration", "field", field)
-			r.EventRecorder.Eventf(secret, nil, corev1.EventTypeWarning, EventReasonGenerationFailed, "Generate", result.errMsg)
-			return result
-		}
-		value, genErr := r.Generator.GenerateWithCharset(genType, length, charset)
-		if genErr != nil {
-			result.err = fmt.Errorf("failed to generate value for field %s: %w", field, genErr)
-			result.errMsg = fmt.Sprintf("Failed to generate value for field %q: %v", field, genErr)
-			result.skipRest = true
-			logger.Error(genErr, "Failed to generate value", "field", field, "type", genType)
-			r.EventRecorder.Eventf(secret, nil, corev1.EventTypeWarning, EventReasonGenerationFailed, "Generate", result.errMsg)
-			return result
-		}
-		result.value = []byte(value)
-
-	default:
-		// For bytes and any other type, use default Generate method
-		value, genErr := r.Generator.Generate(genType, length)
-		if genErr != nil {
-			result.err = fmt.Errorf("failed to generate value for field %s: %w", field, genErr)
-			result.errMsg = fmt.Sprintf("Failed to generate value for field %q: %v", field, genErr)
-			result.skipRest = true
-			logger.Error(genErr, "Failed to generate value", "field", field, "type", genType)
-			r.EventRecorder.Eventf(secret, nil, corev1.EventTypeWarning, EventReasonGenerationFailed, "Generate", result.errMsg)
-			return result
-		}
-		result.value = []byte(value)
+	genResult := r.generateValue(secret, field, genType, length)
+	if genResult.err != nil {
+		result.err = genResult.err
+		result.errMsg = genResult.errMsg
+		result.skipRest = true
+		logger.Error(genResult.err, "Failed to generate value", "field", field, "type", genType)
+		r.EventRecorder.Eventf(secret, nil, corev1.EventTypeWarning, EventReasonGenerationFailed, "Generate", result.errMsg)
+		return result
 	}
+	result.value = genResult.value
+	result.publicKey = genResult.publicKey
 
 	result.rotated = rotationCheck.needsRotation
 

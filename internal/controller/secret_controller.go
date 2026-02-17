@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package controller implements Kubernetes reconcilers for the internal-secrets-operator.
 package controller
 
 import (
@@ -85,12 +86,16 @@ const (
 	// AnnotationStringAllowedSpecialChars specifies which special characters to use
 	AnnotationStringAllowedSpecialChars = AnnotationPrefix + "string.allowedSpecialChars"
 
-	// Event reasons
-	EventReasonGenerationFailed    = "GenerationFailed"
+	// EventReasonGenerationFailed indicates that secret value generation failed.
+	EventReasonGenerationFailed = "GenerationFailed"
+	// EventReasonGenerationSucceeded indicates that secret value generation succeeded.
 	EventReasonGenerationSucceeded = "GenerationSucceeded"
-	EventReasonRotationSucceeded   = "RotationSucceeded"
-	EventReasonRotationFailed      = "RotationFailed"
-	EventReasonRotationDeferred    = "RotationDeferred"
+	// EventReasonRotationSucceeded indicates that secret rotation succeeded.
+	EventReasonRotationSucceeded = "RotationSucceeded"
+	// EventReasonRotationFailed indicates that secret rotation failed.
+	EventReasonRotationFailed = "RotationFailed"
+	// EventReasonRotationDeferred indicates that secret rotation was deferred.
+	EventReasonRotationDeferred = "RotationDeferred"
 )
 
 // SecretReconciler reconciles a Secret object
@@ -484,13 +489,13 @@ func (r *SecretReconciler) emitSuccessEvent(secret *corev1.Secret, rotated bool,
 
 // fieldGenerationResult contains the result of processing a single field
 type fieldGenerationResult struct {
-	field      string
-	value      []byte
-	publicKey  []byte // For keypair types: the public key value
-	rotated    bool
-	err        error
-	errMsg     string
-	skipRest   bool // if true, skip remaining fields and return error
+	field     string
+	value     []byte
+	publicKey []byte // For keypair types: the public key value
+	rotated   bool
+	err       error
+	errMsg    string
+	skipRest  bool // if true, skip remaining fields and return error
 }
 
 // valueGenerationResult contains the result of generating a value for a field.

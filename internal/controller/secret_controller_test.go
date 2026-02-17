@@ -2696,7 +2696,7 @@ func TestGetFieldCurve(t *testing.T) {
 		{
 			name: "field-specific overrides default",
 			annotations: map[string]string{
-				AnnotationCurve:                           "P-256",
+				AnnotationCurve:                       "P-256",
 				AnnotationCurvePrefix + "signing-key": "P-521",
 			},
 			field:    "signing-key",
@@ -2752,8 +2752,8 @@ func TestReconcileRSAKeypair(t *testing.T) {
 			Name:      "rsa-secret",
 			Namespace: "default",
 			Annotations: map[string]string{
-				AnnotationAutogenerate:              "tls-key",
-				AnnotationTypePrefix + "tls-key":    "rsa",
+				AnnotationAutogenerate:             "tls-key",
+				AnnotationTypePrefix + "tls-key":   "rsa",
 				AnnotationLengthPrefix + "tls-key": "2048",
 			},
 		},
@@ -2839,8 +2839,8 @@ func TestReconcileECDSAKeypair(t *testing.T) {
 					Name:      "ecdsa-secret",
 					Namespace: "default",
 					Annotations: map[string]string{
-						AnnotationAutogenerate:                  "signing-key",
-						AnnotationTypePrefix + "signing-key":   "ecdsa",
+						AnnotationAutogenerate:                "signing-key",
+						AnnotationTypePrefix + "signing-key":  "ecdsa",
 						AnnotationCurvePrefix + "signing-key": tt.curve,
 					},
 				},
@@ -2912,7 +2912,7 @@ func TestReconcileECDSAKeypairDefaultCurve(t *testing.T) {
 			Name:      "ecdsa-default-curve",
 			Namespace: "default",
 			Annotations: map[string]string{
-				AnnotationAutogenerate:                "signing-key",
+				AnnotationAutogenerate:               "signing-key",
 				AnnotationTypePrefix + "signing-key": "ecdsa",
 				// No curve annotation → should default to P-256
 			},
@@ -2972,7 +2972,7 @@ func TestReconcileEd25519Keypair(t *testing.T) {
 			Name:      "ed25519-secret",
 			Namespace: "default",
 			Annotations: map[string]string{
-				AnnotationAutogenerate:              "ssh-key",
+				AnnotationAutogenerate:           "ssh-key",
 				AnnotationTypePrefix + "ssh-key": "ed25519",
 			},
 		},
@@ -3042,8 +3042,8 @@ func TestReconcileKeypairExistingValueNotOverwritten(t *testing.T) {
 			Name:      "existing-keypair",
 			Namespace: "default",
 			Annotations: map[string]string{
-				AnnotationAutogenerate:              "tls-key",
-				AnnotationTypePrefix + "tls-key": "rsa",
+				AnnotationAutogenerate:             "tls-key",
+				AnnotationTypePrefix + "tls-key":   "rsa",
 				AnnotationLengthPrefix + "tls-key": "2048",
 			},
 		},
@@ -3108,12 +3108,12 @@ func TestReconcileMixedKeypairAndString(t *testing.T) {
 			Name:      "mixed-secret",
 			Namespace: "default",
 			Annotations: map[string]string{
-				AnnotationAutogenerate:               "password,tls-key,ssh-key",
-				AnnotationType:                        "string",
-				AnnotationLength:                      "24",
-				AnnotationTypePrefix + "tls-key":     "rsa",
-				AnnotationLengthPrefix + "tls-key":   "2048",
-				AnnotationTypePrefix + "ssh-key":     "ed25519",
+				AnnotationAutogenerate:             "password,tls-key,ssh-key",
+				AnnotationType:                     "string",
+				AnnotationLength:                   "24",
+				AnnotationTypePrefix + "tls-key":   "rsa",
+				AnnotationLengthPrefix + "tls-key": "2048",
+				AnnotationTypePrefix + "ssh-key":   "ed25519",
 			},
 		},
 	}
@@ -3194,8 +3194,8 @@ func TestReconcileECDSAInvalidCurve(t *testing.T) {
 			Name:      "invalid-curve-secret",
 			Namespace: "default",
 			Annotations: map[string]string{
-				AnnotationAutogenerate:                  "signing-key",
-				AnnotationTypePrefix + "signing-key":   "ecdsa",
+				AnnotationAutogenerate:                "signing-key",
+				AnnotationTypePrefix + "signing-key":  "ecdsa",
 				AnnotationCurvePrefix + "signing-key": "P-999",
 			},
 		},

@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package replicator provides secret replication logic across Kubernetes namespaces.
 package replicator
 
 import (

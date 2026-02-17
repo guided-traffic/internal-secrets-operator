@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package config provides configuration types and validation for the internal-secrets-operator.
 package config
 
 import (
@@ -34,6 +35,21 @@ const (
 
 	// TypeBytes is the bytes generation type
 	TypeBytes = "bytes"
+
+	// TypeRSA is the RSA keypair generation type
+	TypeRSA = "rsa"
+
+	// TypeECDSA is the ECDSA keypair generation type
+	TypeECDSA = "ecdsa"
+
+	// TypeEd25519 is the Ed25519 keypair generation type
+	TypeEd25519 = "ed25519"
+
+	// DefaultRSAKeySize is the default RSA key size in bits
+	DefaultRSAKeySize = 2048
+
+	// DefaultECDSACurve is the default ECDSA curve
+	DefaultECDSACurve = "P-256"
 
 	// DefaultLength is the default length for generated values
 	DefaultLength = 32
@@ -220,10 +236,10 @@ func LoadConfig(path string) (*Config, error) {
 func (c *Config) Validate() error {
 	// Validate generation type
 	switch c.Defaults.Type {
-	case DefaultType, TypeBytes:
+	case DefaultType, TypeBytes, TypeRSA, TypeECDSA, TypeEd25519:
 		// valid types
 	default:
-		return fmt.Errorf("invalid default type: %s, must be 'string' or 'bytes'", c.Defaults.Type)
+		return fmt.Errorf("invalid default type: %s, must be 'string', 'bytes', 'rsa', 'ecdsa', or 'ed25519'", c.Defaults.Type)
 	}
 
 	// Validate length

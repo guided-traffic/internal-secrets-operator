@@ -2674,3 +2674,579 @@ func TestMaintenanceWindowInitialGenerationNotDeferred(t *testing.T) {
 		t.Error("expected password to be generated even outside maintenance window (initial generation)")
 	}
 }
+
+// TestGetFieldCurve tests the getFieldCurve method
+func TestGetFieldCurve(t *testing.T) {
+	r := &SecretReconciler{
+		Config: config.NewDefaultConfig(),
+	}
+
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		field       string
+		expected    string
+	}{
+		{
+			name:        "field-specific curve",
+			annotations: map[string]string{AnnotationCurvePrefix + "signing-key": "P-384"},
+			field:       "signing-key",
+			expected:    "P-384",
+		},
+		{
+			name: "field-specific overrides default",
+			annotations: map[string]string{
+				AnnotationCurve:                       "P-256",
+				AnnotationCurvePrefix + "signing-key": "P-521",
+			},
+			field:    "signing-key",
+			expected: "P-521",
+		},
+		{
+			name:        "fallback to default curve annotation",
+			annotations: map[string]string{AnnotationCurve: "P-384"},
+			field:       "signing-key",
+			expected:    "P-384",
+		},
+		{
+			name:        "fallback to built-in default P-256",
+			annotations: map[string]string{},
+			field:       "signing-key",
+			expected:    "P-256",
+		},
+		{
+			name:        "nil annotations",
+			annotations: nil,
+			field:       "signing-key",
+			expected:    "P-256",
+		},
+		{
+			name: "different field uses default curve",
+			annotations: map[string]string{
+				AnnotationCurvePrefix + "other-key": "P-521",
+				AnnotationCurve:                     "P-384",
+			},
+			field:    "signing-key",
+			expected: "P-384",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := r.getFieldCurve(tt.annotations, tt.field)
+			if result != tt.expected {
+				t.Errorf("expected %q, got %q", tt.expected, result)
+			}
+		})
+	}
+}
+
+// TestReconcileRSAKeypair tests RSA keypair generation via reconciliation
+func TestReconcileRSAKeypair(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "rsa-secret",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationAutogenerate:             "tls-key",
+				AnnotationTypePrefix + "tls-key":   "rsa",
+				AnnotationLengthPrefix + "tls-key": "2048",
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret).
+		Build()
+
+	gen := generator.NewSecretGenerator()
+	fakeRecorder := NewTestEventRecorder(10)
+
+	reconciler := &SecretReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Generator:     gen,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: fakeRecorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      secret.Name,
+			Namespace: secret.Namespace,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var updatedSecret corev1.Secret
+	err = fakeClient.Get(context.Background(), req.NamespacedName, &updatedSecret)
+	if err != nil {
+		t.Fatalf("failed to get secret: %v", err)
+	}
+
+	// Verify private key was generated
+	privateKey, ok := updatedSecret.Data["tls-key"]
+	if !ok {
+		t.Fatal("expected tls-key field to be generated")
+	}
+	if !strings.HasPrefix(string(privateKey), "-----BEGIN RSA PRIVATE KEY-----") {
+		t.Error("expected private key to be in PEM format")
+	}
+
+	// Verify public key was generated
+	publicKey, ok := updatedSecret.Data["tls-key.pub"]
+	if !ok {
+		t.Fatal("expected tls-key.pub field to be generated")
+	}
+	if !strings.HasPrefix(string(publicKey), "-----BEGIN RSA PUBLIC KEY-----") {
+		t.Error("expected public key to be in PEM format")
+	}
+
+	// Verify generated-at annotation
+	if _, ok := updatedSecret.Annotations[AnnotationGeneratedAt]; !ok {
+		t.Error("expected generated-at annotation to be set")
+	}
+}
+
+// TestReconcileECDSAKeypair tests ECDSA keypair generation via reconciliation
+func TestReconcileECDSAKeypair(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	tests := []struct {
+		name  string
+		curve string
+	}{
+		{"P-256", "P-256"},
+		{"P-384", "P-384"},
+		{"P-521", "P-521"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "ecdsa-secret",
+					Namespace: "default",
+					Annotations: map[string]string{
+						AnnotationAutogenerate:                "signing-key",
+						AnnotationTypePrefix + "signing-key":  "ecdsa",
+						AnnotationCurvePrefix + "signing-key": tt.curve,
+					},
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(secret).
+				Build()
+
+			gen := generator.NewSecretGenerator()
+			fakeRecorder := NewTestEventRecorder(10)
+
+			reconciler := &SecretReconciler{
+				Client:        fakeClient,
+				Scheme:        scheme,
+				Generator:     gen,
+				Config:        config.NewDefaultConfig(),
+				EventRecorder: fakeRecorder,
+			}
+
+			req := ctrl.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      secret.Name,
+					Namespace: secret.Namespace,
+				},
+			}
+
+			_, err := reconciler.Reconcile(context.Background(), req)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			var updatedSecret corev1.Secret
+			err = fakeClient.Get(context.Background(), req.NamespacedName, &updatedSecret)
+			if err != nil {
+				t.Fatalf("failed to get secret: %v", err)
+			}
+
+			// Verify private key was generated
+			privateKey, ok := updatedSecret.Data["signing-key"]
+			if !ok {
+				t.Fatal("expected signing-key field to be generated")
+			}
+			if !strings.HasPrefix(string(privateKey), "-----BEGIN EC PRIVATE KEY-----") {
+				t.Errorf("expected EC private key PEM format, got: %s", string(privateKey)[:50])
+			}
+
+			// Verify public key was generated
+			publicKey, ok := updatedSecret.Data["signing-key.pub"]
+			if !ok {
+				t.Fatal("expected signing-key.pub field to be generated")
+			}
+			if !strings.HasPrefix(string(publicKey), "-----BEGIN PUBLIC KEY-----") {
+				t.Errorf("expected public key PEM format, got: %s", string(publicKey)[:50])
+			}
+		})
+	}
+}
+
+// TestReconcileECDSAKeypairDefaultCurve tests ECDSA with default curve (P-256)
+func TestReconcileECDSAKeypairDefaultCurve(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ecdsa-default-curve",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationAutogenerate:               "signing-key",
+				AnnotationTypePrefix + "signing-key": "ecdsa",
+				// No curve annotation → should default to P-256
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret).
+		Build()
+
+	gen := generator.NewSecretGenerator()
+	fakeRecorder := NewTestEventRecorder(10)
+
+	reconciler := &SecretReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Generator:     gen,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: fakeRecorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      secret.Name,
+			Namespace: secret.Namespace,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var updatedSecret corev1.Secret
+	err = fakeClient.Get(context.Background(), req.NamespacedName, &updatedSecret)
+	if err != nil {
+		t.Fatalf("failed to get secret: %v", err)
+	}
+
+	if _, ok := updatedSecret.Data["signing-key"]; !ok {
+		t.Fatal("expected signing-key field to be generated")
+	}
+	if _, ok := updatedSecret.Data["signing-key.pub"]; !ok {
+		t.Fatal("expected signing-key.pub field to be generated")
+	}
+}
+
+// TestReconcileEd25519Keypair tests Ed25519 keypair generation via reconciliation
+func TestReconcileEd25519Keypair(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ed25519-secret",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationAutogenerate:           "ssh-key",
+				AnnotationTypePrefix + "ssh-key": "ed25519",
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret).
+		Build()
+
+	gen := generator.NewSecretGenerator()
+	fakeRecorder := NewTestEventRecorder(10)
+
+	reconciler := &SecretReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Generator:     gen,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: fakeRecorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      secret.Name,
+			Namespace: secret.Namespace,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var updatedSecret corev1.Secret
+	err = fakeClient.Get(context.Background(), req.NamespacedName, &updatedSecret)
+	if err != nil {
+		t.Fatalf("failed to get secret: %v", err)
+	}
+
+	// Verify private key was generated
+	privateKey, ok := updatedSecret.Data["ssh-key"]
+	if !ok {
+		t.Fatal("expected ssh-key field to be generated")
+	}
+	if !strings.HasPrefix(string(privateKey), "-----BEGIN PRIVATE KEY-----") {
+		t.Errorf("expected private key PEM format, got: %s", string(privateKey)[:40])
+	}
+
+	// Verify public key was generated
+	publicKey, ok := updatedSecret.Data["ssh-key.pub"]
+	if !ok {
+		t.Fatal("expected ssh-key.pub field to be generated")
+	}
+	if !strings.HasPrefix(string(publicKey), "-----BEGIN PUBLIC KEY-----") {
+		t.Errorf("expected public key PEM format, got: %s", string(publicKey)[:40])
+	}
+}
+
+// TestReconcileKeypairExistingValueNotOverwritten tests that existing keypair values are preserved
+func TestReconcileKeypairExistingValueNotOverwritten(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "existing-keypair",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationAutogenerate:             "tls-key",
+				AnnotationTypePrefix + "tls-key":   "rsa",
+				AnnotationLengthPrefix + "tls-key": "2048",
+			},
+		},
+		Data: map[string][]byte{
+			"tls-key": []byte("existing-private-key"),
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret).
+		Build()
+
+	gen := generator.NewSecretGenerator()
+	fakeRecorder := NewTestEventRecorder(10)
+
+	reconciler := &SecretReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Generator:     gen,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: fakeRecorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      secret.Name,
+			Namespace: secret.Namespace,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var updatedSecret corev1.Secret
+	err = fakeClient.Get(context.Background(), req.NamespacedName, &updatedSecret)
+	if err != nil {
+		t.Fatalf("failed to get secret: %v", err)
+	}
+
+	// Verify existing value was not overwritten
+	if string(updatedSecret.Data["tls-key"]) != "existing-private-key" {
+		t.Error("expected existing private key value to be preserved")
+	}
+
+	// Verify no public key was generated (since private key already existed)
+	if _, ok := updatedSecret.Data["tls-key.pub"]; ok {
+		t.Error("expected no public key to be generated when private key already exists")
+	}
+}
+
+// TestReconcileMixedKeypairAndString tests generating mixed types in one secret
+func TestReconcileMixedKeypairAndString(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "mixed-secret",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationAutogenerate:             "password,tls-key,ssh-key",
+				AnnotationType:                     "string",
+				AnnotationLength:                   "24",
+				AnnotationTypePrefix + "tls-key":   "rsa",
+				AnnotationLengthPrefix + "tls-key": "2048",
+				AnnotationTypePrefix + "ssh-key":   "ed25519",
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret).
+		Build()
+
+	gen := generator.NewSecretGenerator()
+	fakeRecorder := NewTestEventRecorder(10)
+
+	reconciler := &SecretReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Generator:     gen,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: fakeRecorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      secret.Name,
+			Namespace: secret.Namespace,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var updatedSecret corev1.Secret
+	err = fakeClient.Get(context.Background(), req.NamespacedName, &updatedSecret)
+	if err != nil {
+		t.Fatalf("failed to get secret: %v", err)
+	}
+
+	// Verify password (string type)
+	password, ok := updatedSecret.Data["password"]
+	if !ok {
+		t.Fatal("expected password field to be generated")
+	}
+	if len(password) != 24 {
+		t.Errorf("expected password length 24, got %d", len(password))
+	}
+
+	// Verify RSA keypair
+	if _, ok := updatedSecret.Data["tls-key"]; !ok {
+		t.Fatal("expected tls-key field to be generated")
+	}
+	if _, ok := updatedSecret.Data["tls-key.pub"]; !ok {
+		t.Fatal("expected tls-key.pub field to be generated")
+	}
+
+	// Verify Ed25519 keypair
+	if _, ok := updatedSecret.Data["ssh-key"]; !ok {
+		t.Fatal("expected ssh-key field to be generated")
+	}
+	if _, ok := updatedSecret.Data["ssh-key.pub"]; !ok {
+		t.Fatal("expected ssh-key.pub field to be generated")
+	}
+
+	// Verify no spurious .pub for password
+	if _, ok := updatedSecret.Data["password.pub"]; ok {
+		t.Error("string type should not generate a .pub field")
+	}
+}
+
+// TestReconcileECDSAInvalidCurve tests that an invalid ECDSA curve emits a warning
+func TestReconcileECDSAInvalidCurve(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "invalid-curve-secret",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationAutogenerate:                "signing-key",
+				AnnotationTypePrefix + "signing-key":  "ecdsa",
+				AnnotationCurvePrefix + "signing-key": "P-999",
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret).
+		Build()
+
+	gen := generator.NewSecretGenerator()
+	fakeRecorder := NewTestEventRecorder(10)
+
+	reconciler := &SecretReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Generator:     gen,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: fakeRecorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      secret.Name,
+			Namespace: secret.Namespace,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify warning event was emitted
+	select {
+	case event := <-fakeRecorder.Events:
+		expectedPrefix := fmt.Sprintf("%s %s", corev1.EventTypeWarning, EventReasonGenerationFailed)
+		if !strings.HasPrefix(event, expectedPrefix) {
+			t.Errorf("expected event to start with %q, got %q", expectedPrefix, event)
+		}
+	default:
+		t.Error("expected a warning event for invalid curve")
+	}
+
+	// Verify no data was written
+	var updatedSecret corev1.Secret
+	err = fakeClient.Get(context.Background(), req.NamespacedName, &updatedSecret)
+	if err != nil {
+		t.Fatalf("failed to get secret: %v", err)
+	}
+	if _, ok := updatedSecret.Data["signing-key"]; ok {
+		t.Error("expected no data to be written for invalid curve")
+	}
+}

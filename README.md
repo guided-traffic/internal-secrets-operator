@@ -93,6 +93,8 @@ All annotations use the prefix `iso.gtrfc.com/`.
 | `length` | Default length for all fields | `32` |
 | `type.<field>` | Type for a specific field (overrides `type`) | - |
 | `length.<field>` | Length for a specific field (overrides `length`) | - |
+| `curve` | Default elliptic curve for `ecdsa` fields | `P-256` |
+| `curve.<field>` | Elliptic curve for a specific field (overrides `curve`) | - |
 | `rotate` | Default rotation interval for all fields | - |
 | `rotate.<field>` | Rotation interval for a specific field (overrides `rotate`) | - |
 | `generated-at` | Timestamp when values were generated (set by operator) | - |
@@ -103,8 +105,25 @@ All annotations use the prefix `iso.gtrfc.com/`.
 |------|-------------|------------------|----------|
 | `string` | Alphanumeric string | Number of characters | Passwords, API keys, tokens |
 | `bytes` | Raw random bytes | Number of bytes | Encryption keys, binary secrets |
+| `rsa` | RSA keypair (PKCS#1 PEM) | Key size in bits (`2048`, `4096`) | TLS certificates, signing, encryption |
+| `ecdsa` | ECDSA keypair (PKCS#1 PEM) | *(ignored, use `curve`)* | TLS certificates, JWT signing (ES256/ES384/ES512) |
+| `ed25519` | Ed25519 keypair (PKCS#1 PEM) | *(ignored, fixed 256-bit)* | SSH keys, modern signing |
 
 > **Note:** Kubernetes stores all secret data Base64-encoded. The `bytes` type generates raw bytes which are then Base64-encoded by Kubernetes when stored.
+
+#### Keypair Types (rsa, ecdsa, ed25519)
+
+For keypair types, the operator generates **two Secret data entries** per field:
+
+| Entry | Content |
+|-------|---------|
+| `<field>` | Private Key in PEM format |
+| `<field>.pub` | Public Key in PEM format |
+
+All keys are output in **PKCS#1 PEM** format:
+- RSA: `BEGIN RSA PRIVATE KEY` / `BEGIN RSA PUBLIC KEY`
+- ECDSA: `BEGIN EC PRIVATE KEY` / `BEGIN PUBLIC KEY`
+- Ed25519: `BEGIN PRIVATE KEY` / `BEGIN PUBLIC KEY`
 
 ## Examples
 
@@ -171,6 +190,99 @@ Result:
 - `password`: 24-character alphanumeric string
 - `encryption-key`: 32 random bytes (Base64-encoded)
 - `username`: preserved as-is
+
+### Generate an RSA Keypair
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tls-keypair
+  annotations:
+    iso.gtrfc.com/autogenerate: tls-key
+    iso.gtrfc.com/type: rsa
+    iso.gtrfc.com/length: "4096"
+type: Opaque
+```
+
+Result:
+- `tls-key`: RSA 4096-bit Private Key (PEM, PKCS#1)
+- `tls-key.pub`: RSA Public Key (PEM)
+
+### Generate an ECDSA Keypair
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: signing-keypair
+  annotations:
+    iso.gtrfc.com/autogenerate: signing-key
+    iso.gtrfc.com/type: ecdsa
+    iso.gtrfc.com/curve: "P-256"
+type: Opaque
+```
+
+Result:
+- `signing-key`: ECDSA P-256 Private Key (PEM, PKCS#1)
+- `signing-key.pub`: ECDSA P-256 Public Key (PEM)
+
+Supported curves:
+
+| Curve | Security Level | JWT Algorithm |
+|-------|---------------|---------------|
+| `P-256` (default) | ~RSA 3072 | ES256 |
+| `P-384` | ~RSA 7680 | ES384 |
+| `P-521` | ~RSA 15360 | ES512 |
+
+### Generate an Ed25519 Keypair
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ssh-keypair
+  annotations:
+    iso.gtrfc.com/autogenerate: ssh-key
+    iso.gtrfc.com/type: ed25519
+type: Opaque
+```
+
+Result:
+- `ssh-key`: Ed25519 Private Key (PEM)
+- `ssh-key.pub`: Ed25519 Public Key (PEM)
+
+> **Note:** Ed25519 keys have a fixed size (256-bit). The `length` and `curve` annotations are ignored for this type.
+
+### Mixed: Passwords, RSA, ECDSA, and Ed25519
+
+Generate different types of secrets in a single Secret resource:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mixed-credentials
+  annotations:
+    iso.gtrfc.com/autogenerate: password,tls-key,signing-key,ssh-key
+    iso.gtrfc.com/type: string
+    iso.gtrfc.com/length: "32"
+    iso.gtrfc.com/type.tls-key: rsa
+    iso.gtrfc.com/length.tls-key: "4096"
+    iso.gtrfc.com/type.signing-key: ecdsa
+    iso.gtrfc.com/curve.signing-key: "P-384"
+    iso.gtrfc.com/type.ssh-key: ed25519
+type: Opaque
+```
+
+Result:
+- `password`: 32-character alphanumeric string
+- `tls-key`: RSA 4096-bit Private Key (PEM)
+- `tls-key.pub`: RSA 4096-bit Public Key (PEM)
+- `signing-key`: ECDSA P-384 Private Key (PEM)
+- `signing-key.pub`: ECDSA P-384 Public Key (PEM)
+- `ssh-key`: Ed25519 Private Key (PEM)
+- `ssh-key.pub`: Ed25519 Public Key (PEM)
 
 ## Automatic Secret Rotation
 
@@ -697,7 +809,7 @@ The operator's default behavior can be customized via Helm values:
 ```yaml
 config:
   defaults:
-    # Default generation type: "string" or "bytes"
+    # Default generation type: "string", "bytes", "rsa", "ecdsa", or "ed25519"
     type: string
     # Default length for generated values
     length: 32
@@ -750,9 +862,12 @@ When deployed via Helm, the configuration is managed through the `config` sectio
 
 ```yaml
 defaults:
-  # Generation type: "string" or "bytes"
+  # Generation type: "string", "bytes", "rsa", "ecdsa", or "ed25519"
   # - string: Generates alphanumeric characters (configurable charset)
   # - bytes: Generates raw random bytes
+  # - rsa: Generates RSA keypair in PKCS#1 PEM format
+  # - ecdsa: Generates ECDSA keypair in PKCS#1 PEM format
+  # - ed25519: Generates Ed25519 keypair in PKCS#1 PEM format
   type: string
 
   # Length of generated values
@@ -798,7 +913,7 @@ features:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `defaults.type` | string | `string` | Default generation type. Valid values: `string`, `bytes` |
+| `defaults.type` | string | `string` | Default generation type. Valid values: `string`, `bytes`, `rsa`, `ecdsa`, `ed25519` |
 | `defaults.length` | integer | `32` | Default length for generated values (must be > 0) |
 | `defaults.string.uppercase` | boolean | `true` | Include uppercase letters (A-Z) in generated strings |
 | `defaults.string.lowercase` | boolean | `true` | Include lowercase letters (a-z) in generated strings |
@@ -814,7 +929,7 @@ features:
 
 The operator validates the configuration at startup and will fail to start if:
 
-1. **Invalid type**: `defaults.type` must be either `string` or `bytes`
+1. **Invalid type**: `defaults.type` must be one of `string`, `bytes`, `rsa`, `ecdsa`, or `ed25519`
 2. **Invalid length**: `defaults.length` must be a positive integer
 3. **No charset enabled**: At least one of `uppercase`, `lowercase`, `numbers`, or `specialChars` must be `true`
 4. **Empty special chars**: If `specialChars` is `true`, `allowedSpecialChars` must not be empty

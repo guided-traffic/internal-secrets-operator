@@ -38,12 +38,16 @@ import (
 )
 
 const (
-	// Event reasons for replication
+	// EventReasonReplicationSucceeded indicates that secret replication succeeded.
 	EventReasonReplicationSucceeded = "ReplicationSucceeded"
-	EventReasonReplicationFailed    = "ReplicationFailed"
-	EventReasonPushFailed           = "PushFailed"
-	EventReasonSourceDeleted        = "SourceDeleted"
-	EventReasonConflictingFeatures  = "ConflictingFeatures"
+	// EventReasonReplicationFailed indicates that secret replication failed.
+	EventReasonReplicationFailed = "ReplicationFailed"
+	// EventReasonPushFailed indicates that push-based replication failed.
+	EventReasonPushFailed = "PushFailed"
+	// EventReasonSourceDeleted indicates that the source secret was deleted.
+	EventReasonSourceDeleted = "SourceDeleted"
+	// EventReasonConflictingFeatures indicates conflicting feature annotations.
+	EventReasonConflictingFeatures = "ConflictingFeatures"
 )
 
 // SecretReplicatorReconciler reconciles Secrets for replication

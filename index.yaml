@@ -2,8 +2,31 @@ apiVersion: v1
 entries:
   internal-secrets-operator:
   - apiVersion: v2
+    appVersion: 1.4.3
+    created: "2026-02-27T17:13:53.549238926Z"
+    description: A Kubernetes controller that automatically generates random secret
+      values
+    digest: 77387c650eb05bf2bdacbdccc79e321ca256351067a298f88db093ea33c7e415
+    home: https://github.com/guided-traffic/internal-secrets-operator
+    keywords:
+    - kubernetes
+    - secrets
+    - operator
+    - controller
+    kubeVersion: '>= 1.25.0'
+    maintainers:
+    - name: guided-traffic
+      url: https://github.com/guided-traffic
+    name: internal-secrets-operator
+    sources:
+    - https://github.com/guided-traffic/internal-secrets-operator
+    type: application
+    urls:
+    - https://guided-traffic.github.io/internal-secrets-operator/internal-secrets-operator-1.4.3.tgz
+    version: 1.4.3
+  - apiVersion: v2
     appVersion: 1.4.2
-    created: "2026-02-23T04:53:09.362379076Z"
+    created: "2026-02-27T17:13:53.54858328Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: cd8014c37119be5eb8c08bc5e2e67bdc5a1eb33b7ecbc15e8ca831c6af4b73ed
@@ -26,7 +49,7 @@ entries:
     version: 1.4.2
   - apiVersion: v2
     appVersion: 1.4.1
-    created: "2026-02-23T04:53:09.361894139Z"
+    created: "2026-02-27T17:13:53.547928316Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 2dd5b68fa50d8fa826c6c87d38e2a0539899164fbdea7ae3ce34ae1b4e97126b
@@ -49,7 +72,7 @@ entries:
     version: 1.4.1
   - apiVersion: v2
     appVersion: 1.4.0
-    created: "2026-02-23T04:53:09.361330643Z"
+    created: "2026-02-27T17:13:53.54713973Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 294e540b121ac19f2eb45691640f41300bf5f6a0109a45ff31a8b48812dae7ef
@@ -72,7 +95,7 @@ entries:
     version: 1.4.0
   - apiVersion: v2
     appVersion: 1.3.9
-    created: "2026-02-23T04:53:09.360735207Z"
+    created: "2026-02-27T17:13:53.546096173Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: d8b982adc556b26195e84890cd2c129ee21d6fc6d10e7f8185ce856d0bab5531
@@ -95,7 +118,7 @@ entries:
     version: 1.3.9
   - apiVersion: v2
     appVersion: 1.3.8
-    created: "2026-02-23T04:53:09.360228659Z"
+    created: "2026-02-27T17:13:53.545353854Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: da6c3641bd1765534d16a319f86006d8583e1643d06f14729083ac18a297fbb1
@@ -118,7 +141,7 @@ entries:
     version: 1.3.8
   - apiVersion: v2
     appVersion: 1.3.7
-    created: "2026-02-23T04:53:09.359691523Z"
+    created: "2026-02-27T17:13:53.544639488Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 1741262c6648892dad9bb570d967141aaa38e603cb868213432622e760acab5b
@@ -141,7 +164,7 @@ entries:
     version: 1.3.7
   - apiVersion: v2
     appVersion: 1.3.6
-    created: "2026-02-23T04:53:09.35915585Z"
+    created: "2026-02-27T17:13:53.543779237Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: ef690b2226ef115dfa29d2d40be0343038b6a249077cba90198076542c863c12
@@ -164,7 +187,7 @@ entries:
     version: 1.3.6
   - apiVersion: v2
     appVersion: 1.3.5
-    created: "2026-02-23T04:53:09.35860055Z"
+    created: "2026-02-27T17:13:53.542551102Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 6f7548b00197808806062141879ed54b8dc4ceb16bf8d1ff9c27a0049347d324
@@ -187,7 +210,7 @@ entries:
     version: 1.3.5
   - apiVersion: v2
     appVersion: 1.3.4
-    created: "2026-02-23T04:53:09.357794646Z"
+    created: "2026-02-27T17:13:53.541735785Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 24c507a9a06b7f7d0bc4a792151b97eaba3359eb003f926a6a4f2c2840889de9
@@ -210,7 +233,7 @@ entries:
     version: 1.3.4
   - apiVersion: v2
     appVersion: 1.3.3
-    created: "2026-02-23T04:53:09.356725313Z"
+    created: "2026-02-27T17:13:53.541121327Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: f3f1b0529d99e2529a11e9b9731c91733c09845ffea7c23626a8b6a0db686939
@@ -233,7 +256,7 @@ entries:
     version: 1.3.3
   - apiVersion: v2
     appVersion: 1.3.2
-    created: "2026-02-23T04:53:09.356182206Z"
+    created: "2026-02-27T17:13:53.54050736Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: d0753e1d72993e9e11eb04852029ed78968faf9b33dd789f5d96bfbad0cad835
@@ -256,7 +279,7 @@ entries:
     version: 1.3.2
   - apiVersion: v2
     appVersion: 1.3.1
-    created: "2026-02-23T04:53:09.355590438Z"
+    created: "2026-02-27T17:13:53.539937557Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 982b2fa620ca643669440e86ce0cd658e9d343dfce348710ca7ad19cabbfc1d0
@@ -279,7 +302,7 @@ entries:
     version: 1.3.1
   - apiVersion: v2
     appVersion: 1.3.0
-    created: "2026-02-23T04:53:09.355143913Z"
+    created: "2026-02-27T17:13:53.53931319Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 7a24e7a3129a83db2d3c6c5cd9bdf560b5c29f18b13f331865c6f56d415893d5
@@ -302,7 +325,7 @@ entries:
     version: 1.3.0
   - apiVersion: v2
     appVersion: 1.2.11
-    created: "2026-02-23T04:53:09.349926817Z"
+    created: "2026-02-27T17:13:53.532694376Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: e30f875b91fc11f2e3fa22beaaaed8a51c6f8a17bd731cbfea6bd56a4e6834b5
@@ -325,7 +348,7 @@ entries:
     version: 1.2.11
   - apiVersion: v2
     appVersion: 1.2.10
-    created: "2026-02-23T04:53:09.348694667Z"
+    created: "2026-02-27T17:13:53.532084937Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 8e936517ca665b2933bc3536780f6dcca18e3cc88c6b49181ec55a03c09e2928
@@ -348,7 +371,7 @@ entries:
     version: 1.2.10
   - apiVersion: v2
     appVersion: 1.2.9
-    created: "2026-02-23T04:53:09.354607679Z"
+    created: "2026-02-27T17:13:53.53863426Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 96b23a667dab0745c073910e9e891546abf0e2afc48d459779ab2d92dfe847e9
@@ -371,7 +394,7 @@ entries:
     version: 1.2.9
   - apiVersion: v2
     appVersion: 1.2.8
-    created: "2026-02-23T04:53:09.354067717Z"
+    created: "2026-02-27T17:13:53.537957245Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 77a0d0bb60a26cae704744ac348aecbc029fefb288757d47f3b0d37abf46c15d
@@ -394,7 +417,7 @@ entries:
     version: 1.2.8
   - apiVersion: v2
     appVersion: 1.2.7
-    created: "2026-02-23T04:53:09.353512247Z"
+    created: "2026-02-27T17:13:53.537347365Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 92c1a2df27578d545ef7b061f1f1835cd48a5d3cfcdbe8bbff0c3988449a9c79
@@ -417,7 +440,7 @@ entries:
     version: 1.2.7
   - apiVersion: v2
     appVersion: 1.2.6
-    created: "2026-02-23T04:53:09.352845988Z"
+    created: "2026-02-27T17:13:53.536768293Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: a5f3b8bacbea7ff1b5a60262c4551bd49f99cf884a327c726a8074927dc070fd
@@ -439,7 +462,7 @@ entries:
     version: 1.2.6
   - apiVersion: v2
     appVersion: 1.2.5
-    created: "2026-02-23T04:53:09.352352304Z"
+    created: "2026-02-27T17:13:53.536181067Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: f39f554813c4a9f35fb0a7f344b6d7aaa07d2a63b6b900a96634c609026606e5
@@ -461,7 +484,7 @@ entries:
     version: 1.2.5
   - apiVersion: v2
     appVersion: 1.2.4
-    created: "2026-02-23T04:53:09.351846668Z"
+    created: "2026-02-27T17:13:53.535586947Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 6c9bb9a9a97e443892a3fd9004db897b62c7c8fcf47cc1bc988c2a40cd9bcbef
@@ -483,7 +506,7 @@ entries:
     version: 1.2.4
   - apiVersion: v2
     appVersion: 1.2.3
-    created: "2026-02-23T04:53:09.351351661Z"
+    created: "2026-02-27T17:13:53.534980164Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 19edbdfa5268b415d30cfce2415c5113aa1d4a163e00a0786a2018c15df27d60
@@ -505,7 +528,7 @@ entries:
     version: 1.2.3
   - apiVersion: v2
     appVersion: 1.2.2
-    created: "2026-02-23T04:53:09.35066889Z"
+    created: "2026-02-27T17:13:53.534331161Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 40682bff35b1e820f1d146cc68cbe1b1045baee64f21706b8222bab607730782
@@ -527,7 +550,7 @@ entries:
     version: 1.2.2
   - apiVersion: v2
     appVersion: 1.2.1
-    created: "2026-02-23T04:53:09.348145878Z"
+    created: "2026-02-27T17:13:53.531453728Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 80360164a11092216dbfb2dd04137c18d75989df093803bb171fe6ae3c4d766e
@@ -549,7 +572,7 @@ entries:
     version: 1.2.1
   - apiVersion: v2
     appVersion: 1.2.0
-    created: "2026-02-23T04:53:09.347527959Z"
+    created: "2026-02-27T17:13:53.530769028Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 08cb850eadca6ed03a9a2fa6879b1f6662e6af5ca56f140aa1d5701c595fa526
@@ -571,7 +594,7 @@ entries:
     version: 1.2.0
   - apiVersion: v2
     appVersion: 1.1.5
-    created: "2026-02-23T04:53:09.346982758Z"
+    created: "2026-02-27T17:13:53.530108542Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: 827a7328fc9cba1bfa3420d64d9d09b76447a1d73f1d702ca4c0aec32aa38721
@@ -593,7 +616,7 @@ entries:
     version: 1.1.5
   - apiVersion: v2
     appVersion: 1.1.0
-    created: "2026-02-23T04:53:09.346342989Z"
+    created: "2026-02-27T17:13:53.529506819Z"
     description: A Kubernetes controller that automatically generates random secret
       values
     digest: b2e81308750dc6b2f1560bfdaaea4a3f47cf95828ea937aa4f2fb147ab8eff2b
@@ -613,4 +636,4 @@ entries:
     urls:
     - https://guided-traffic.github.io/internal-secrets-operator/internal-secrets-operator-1.1.0.tgz
     version: 1.1.0
-generated: "2026-02-23T04:53:09.345327518Z"
+generated: "2026-02-27T17:13:53.52869529Z"

@@ -5,7 +5,7 @@ IMG ?= ghcr.io/guided-traffic/internal-secrets-operator:latest
 # This is updated by Renovate tracking kubernetes/kubernetes releases.
 # We derive ENVTEST_K8S_MINOR (e.g. 1.35.x) to use with setup-envtest, so that if the exact
 # patch version isn't available yet, the latest available patch is used instead.
-ENVTEST_K8S_VERSION = 1.35.0
+ENVTEST_K8S_VERSION = 1.35.3
 ENVTEST_K8S_MINOR = $(shell echo $(ENVTEST_K8S_VERSION) | sed 's/\.[0-9]*$$/.x/')
 
 # Go commands

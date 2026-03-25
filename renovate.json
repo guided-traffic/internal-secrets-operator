@@ -257,7 +257,7 @@
       "depNameTemplate": "kubernetes/kubernetes",
       "datasourceTemplate": "github-releases",
       "versioningTemplate": "semver",
-      "extractVersionTemplate": "^v(?<version>.*)$"
+      "extractVersionTemplate": "^v(?<version>.*)"
     },
     {
       "description": "Update setup-envtest version in Makefile (matches controller-runtime releases)",

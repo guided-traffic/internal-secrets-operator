@@ -22,7 +22,9 @@ package integration
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -61,12 +63,17 @@ func TestMain(m *testing.M) {
 		zap.StacktraceLevel(zapcore.PanicLevel),
 	))
 
-	// Set KUBEBUILDER_ASSETS if not already set (for local development on macOS ARM64)
+	// Set KUBEBUILDER_ASSETS if not already set (for local development)
 	// In CI/CD, this will already be set by the Makefile to the correct platform
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
 		projectRoot := getProjectRoot()
-		kubebuilderAssets := filepath.Join(projectRoot, "bin", "k8s", "1.29.0-darwin-arm64")
-		os.Setenv("KUBEBUILDER_ASSETS", kubebuilderAssets)
+		setupEnvtest := filepath.Join(projectRoot, "bin", "setup-envtest")
+		out, err := exec.Command(setupEnvtest, "use", "--bin-dir", filepath.Join(projectRoot, "bin"), "-p", "path", "1.x").Output()
+		if err != nil {
+			logf.Log.Error(err, "failed to run setup-envtest, run 'make envtest' first")
+			os.Exit(1)
+		}
+		os.Setenv("KUBEBUILDER_ASSETS", strings.TrimSpace(string(out)))
 	}
 
 	testEnv = &envtest.Environment{

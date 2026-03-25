@@ -2,7 +2,11 @@
 IMG ?= ghcr.io/guided-traffic/internal-secrets-operator:latest
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
+# This is updated by Renovate tracking kubernetes/kubernetes releases.
+# We derive ENVTEST_K8S_MINOR (e.g. 1.35.x) to use with setup-envtest, so that if the exact
+# patch version isn't available yet, the latest available patch is used instead.
 ENVTEST_K8S_VERSION = 1.35.0
+ENVTEST_K8S_MINOR = $(shell echo $(ENVTEST_K8S_VERSION) | sed 's/\.[0-9]*$$/.x/')
 
 # Go commands
 GOCMD = go
@@ -69,29 +73,29 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes.
 
 .PHONY: test
 test: fmt vet envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./... -coverprofile cover.out
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_MINOR) --bin-dir $(LOCALBIN) -p path)" go test ./... -coverprofile cover.out
 
 .PHONY: test-unit
 test-unit: envtest ## Run unit tests only.
 	@echo "Running unit tests..."
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(GOTEST) -v -short ./...
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_MINOR) --bin-dir $(LOCALBIN) -p path)" $(GOTEST) -v -short ./...
 
 .PHONY: test-unit-coverage
 test-unit-coverage: envtest ## Run unit tests with coverage.
 	@echo "Running unit tests with coverage..."
 	@mkdir -p $(COVERAGE_DIR)
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(GOTEST) -v -short -coverprofile=$(COVERAGE_DIR)/unit.out -covermode=atomic ./...
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_MINOR) --bin-dir $(LOCALBIN) -p path)" $(GOTEST) -v -short -coverprofile=$(COVERAGE_DIR)/unit.out -covermode=atomic ./...
 
 .PHONY: test-integration
 test-integration: envtest ## Run integration tests only.
 	@echo "Running integration tests..."
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(GOTEST) -v -tags=integration -count=1 -timeout=60m ./test/integration/...
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_MINOR) --bin-dir $(LOCALBIN) -p path)" $(GOTEST) -v -tags=integration -count=1 -timeout=60m ./test/integration/...
 
 .PHONY: test-integration-coverage
 test-integration-coverage: envtest ## Run integration tests with coverage.
 	@echo "Running integration tests with coverage..."
 	@mkdir -p $(COVERAGE_DIR)
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(GOTEST) -v -tags=integration -count=1 -timeout=60m -coverprofile=$(COVERAGE_DIR)/integration.out -covermode=atomic -coverpkg=./... ./test/integration/...
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_MINOR) --bin-dir $(LOCALBIN) -p path)" $(GOTEST) -v -tags=integration -count=1 -timeout=60m -coverprofile=$(COVERAGE_DIR)/integration.out -covermode=atomic -coverpkg=./... ./test/integration/...
 
 .PHONY: test-e2e
 test-e2e: ## Run E2E tests against a running Kind cluster.
@@ -136,7 +140,7 @@ test-coverage: test ## Run tests and show coverage report.
 coverage: envtest ## Generate test coverage report.
 	@echo "Generating coverage report..."
 	@mkdir -p $(COVERAGE_DIR)
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(GOTEST) -coverprofile=$(COVERAGE_DIR)/coverage.out ./...
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_MINOR) --bin-dir $(LOCALBIN) -p path)" $(GOTEST) -coverprofile=$(COVERAGE_DIR)/coverage.out ./...
 	$(GOCMD) tool cover -html=$(COVERAGE_DIR)/coverage.out -o $(COVERAGE_DIR)/coverage.html
 	$(GOCMD) tool cover -func=$(COVERAGE_DIR)/coverage.out > $(COVERAGE_DIR)/coverage.txt
 	@echo "Coverage report generated at $(COVERAGE_DIR)/coverage.html"
@@ -147,7 +151,7 @@ coverage: envtest ## Generate test coverage report.
 coverage-ci: envtest ## Generate CI coverage report.
 	@echo "Generating CI coverage report..."
 	@mkdir -p $(COVERAGE_DIR)
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(GOTEST) -coverprofile=$(COVERAGE_DIR)/coverage.out ./...
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_MINOR) --bin-dir $(LOCALBIN) -p path)" $(GOTEST) -coverprofile=$(COVERAGE_DIR)/coverage.out ./...
 	$(GOCMD) tool cover -func=$(COVERAGE_DIR)/coverage.out > $(COVERAGE_DIR)/coverage.txt
 	@grep "total:" $(COVERAGE_DIR)/coverage.txt
 .PHONY: coverage-merge

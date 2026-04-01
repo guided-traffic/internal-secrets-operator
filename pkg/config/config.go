@@ -45,6 +45,12 @@ const (
 	// TypeEd25519 is the Ed25519 keypair generation type
 	TypeEd25519 = "ed25519"
 
+	// TypeMLKEM is the ML-KEM (FIPS 203) post-quantum key encapsulation type
+	TypeMLKEM = "mlkem"
+
+	// DefaultMLKEMParam is the default ML-KEM parameter set
+	DefaultMLKEMParam = "768"
+
 	// DefaultRSAKeySize is the default RSA key size in bits
 	DefaultRSAKeySize = 2048
 

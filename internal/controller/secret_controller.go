@@ -62,6 +62,12 @@ const (
 	// AnnotationCurvePrefix is the prefix for field-specific curve annotations (curve.<field>)
 	AnnotationCurvePrefix = AnnotationPrefix + "curve."
 
+	// AnnotationParam specifies the default parameter set for post-quantum types
+	AnnotationParam = AnnotationPrefix + "param"
+
+	// AnnotationParamPrefix is the prefix for field-specific param annotations (param.<field>)
+	AnnotationParamPrefix = AnnotationPrefix + "param."
+
 	// AnnotationGeneratedAt indicates when the value was generated
 	AnnotationGeneratedAt = AnnotationPrefix + "generated-at"
 
@@ -264,6 +270,18 @@ func (r *SecretReconciler) getFieldCurve(annotations map[string]string, field st
 	}
 	// Default curve
 	return config.DefaultECDSACurve
+}
+
+// getFieldParam returns the parameter set for a specific field (used by post-quantum types).
+// Priority: param.<field> annotation > param annotation > defaultParam
+func (r *SecretReconciler) getFieldParam(annotations map[string]string, field string, defaultParam string) string {
+	if v, ok := annotations[AnnotationParamPrefix+field]; ok && v != "" {
+		return v
+	}
+	if v, ok := annotations[AnnotationParam]; ok && v != "" {
+		return v
+	}
+	return defaultParam
 }
 
 // getFieldRotationInterval returns the rotation interval for a specific field.
@@ -528,6 +546,12 @@ func (r *SecretReconciler) generateValue(
 
 	case config.TypeEd25519:
 		return r.generateKeypairValue(field, genType, r.Generator.GenerateEd25519Keypair)
+
+	case config.TypeMLKEM:
+		param := r.getFieldParam(secret.Annotations, field, config.DefaultMLKEMParam)
+		return r.generateKeypairValue(field, genType, func() (string, string, error) {
+			return r.Generator.GenerateMLKEMKeypair(param)
+		})
 
 	case "string", "":
 		charset, charsetErr := r.getCharsetFromAnnotations(secret.Annotations)

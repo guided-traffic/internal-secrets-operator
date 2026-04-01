@@ -43,6 +43,8 @@ const (
 	AnnotationLengthPrefix = AnnotationPrefix + "length."
 	AnnotationCurve        = AnnotationPrefix + "curve"
 	AnnotationCurvePrefix  = AnnotationPrefix + "curve."
+	AnnotationParam        = AnnotationPrefix + "param"
+	AnnotationParamPrefix  = AnnotationPrefix + "param."
 	AnnotationGeneratedAt  = AnnotationPrefix + "generated-at"
 
 	// Test timeouts
@@ -918,6 +920,134 @@ func TestKeypairGeneration(t *testing.T) {
 		// Verify no .pub for string type
 		if _, ok := updatedSecret.Data["password.pub"]; ok {
 			t.Error("string type should not generate a .pub field")
+		}
+	})
+
+	t.Run("MLKEMKeypairGeneration", func(t *testing.T) {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-mlkem-keypair",
+				Namespace: ns.Name,
+				Annotations: map[string]string{
+					AnnotationAutogenerate:              "kem-key",
+					AnnotationTypePrefix + "kem-key":    "mlkem",
+					AnnotationParamPrefix + "kem-key":   "768",
+				},
+			},
+			Type: corev1.SecretTypeOpaque,
+		}
+
+		if err := tc.client.Create(ctx, secret); err != nil {
+			t.Fatalf("failed to create secret: %v", err)
+		}
+
+		key := types.NamespacedName{Name: secret.Name, Namespace: ns.Name}
+		updatedSecret, err := waitForSecretField(ctx, tc.client, key, "kem-key")
+		if err != nil {
+			t.Fatalf("failed to get secret: %v", err)
+		}
+
+		// Verify decapsulation key (private key)
+		dk, ok := updatedSecret.Data["kem-key"]
+		if !ok {
+			t.Fatal("expected kem-key field to be generated")
+		}
+		if len(dk) != 64 {
+			t.Errorf("expected decapsulation key length 64 (ML-KEM-768), got %d", len(dk))
+		}
+
+		// Verify encapsulation key (public key)
+		ek, ok := updatedSecret.Data["kem-key.pub"]
+		if !ok {
+			t.Fatal("expected kem-key.pub field to be generated")
+		}
+		if len(ek) != 1184 {
+			t.Errorf("expected encapsulation key length 1184 (ML-KEM-768), got %d", len(ek))
+		}
+
+		if _, ok := updatedSecret.Annotations[AnnotationGeneratedAt]; !ok {
+			t.Error("expected generated-at annotation")
+		}
+	})
+
+	t.Run("MLKEM1024KeypairGeneration", func(t *testing.T) {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-mlkem-1024-keypair",
+				Namespace: ns.Name,
+				Annotations: map[string]string{
+					AnnotationAutogenerate:              "kem-key",
+					AnnotationTypePrefix + "kem-key":    "mlkem",
+					AnnotationParamPrefix + "kem-key":   "1024",
+				},
+			},
+			Type: corev1.SecretTypeOpaque,
+		}
+
+		if err := tc.client.Create(ctx, secret); err != nil {
+			t.Fatalf("failed to create secret: %v", err)
+		}
+
+		key := types.NamespacedName{Name: secret.Name, Namespace: ns.Name}
+		updatedSecret, err := waitForSecretField(ctx, tc.client, key, "kem-key")
+		if err != nil {
+			t.Fatalf("failed to get secret: %v", err)
+		}
+
+		// Verify decapsulation key
+		dk, ok := updatedSecret.Data["kem-key"]
+		if !ok {
+			t.Fatal("expected kem-key field to be generated")
+		}
+		if len(dk) != 64 {
+			t.Errorf("expected decapsulation key length 64 (ML-KEM-1024), got %d", len(dk))
+		}
+
+		// Verify encapsulation key
+		ek, ok := updatedSecret.Data["kem-key.pub"]
+		if !ok {
+			t.Fatal("expected kem-key.pub field to be generated")
+		}
+		if len(ek) != 1568 {
+			t.Errorf("expected encapsulation key length 1568 (ML-KEM-1024), got %d", len(ek))
+		}
+	})
+
+	t.Run("MLKEMDefaultParam", func(t *testing.T) {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-mlkem-default-param",
+				Namespace: ns.Name,
+				Annotations: map[string]string{
+					AnnotationAutogenerate:           "kem-key",
+					AnnotationTypePrefix + "kem-key": "mlkem",
+					// No param annotation → default 768
+				},
+			},
+			Type: corev1.SecretTypeOpaque,
+		}
+
+		if err := tc.client.Create(ctx, secret); err != nil {
+			t.Fatalf("failed to create secret: %v", err)
+		}
+
+		key := types.NamespacedName{Name: secret.Name, Namespace: ns.Name}
+		updatedSecret, err := waitForSecretField(ctx, tc.client, key, "kem-key")
+		if err != nil {
+			t.Fatalf("failed to get secret: %v", err)
+		}
+
+		if _, ok := updatedSecret.Data["kem-key"]; !ok {
+			t.Fatal("expected kem-key field to be generated")
+		}
+		if _, ok := updatedSecret.Data["kem-key.pub"]; !ok {
+			t.Fatal("expected kem-key.pub field to be generated")
+		}
+
+		// Default should be ML-KEM-768 (decapsulation key = 64 bytes)
+		dk := updatedSecret.Data["kem-key"]
+		if len(dk) != 64 {
+			t.Errorf("expected decapsulation key length 64 (ML-KEM-768 default), got %d", len(dk))
 		}
 	})
 

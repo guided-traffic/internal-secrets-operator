@@ -21,6 +21,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
+	"crypto/mlkem"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -48,6 +49,10 @@ type Generator interface {
 	// GenerateEd25519Keypair generates an Ed25519 keypair.
 	// Returns (privateKeyPEM, publicKeyPEM, error).
 	GenerateEd25519Keypair() (string, string, error)
+	// GenerateMLKEMKeypair generates an ML-KEM (FIPS 203) keypair.
+	// Supported params: "768" (ML-KEM-768) and "1024" (ML-KEM-1024).
+	// Returns (decapsulationKey, encapsulationKey, error) as raw bytes encoded to string.
+	GenerateMLKEMKeypair(param string) (string, string, error)
 	// Generate generates a value based on the specified type
 	Generate(genType string, length int) (string, error)
 	// GenerateWithCharset generates a value based on the specified type with a custom charset
@@ -141,7 +146,7 @@ func (g *SecretGenerator) GenerateWithCharset(genType string, length int, charse
 			return "", err
 		}
 		return string(bytes), nil
-	case config.TypeRSA, config.TypeECDSA, config.TypeEd25519:
+	case config.TypeRSA, config.TypeECDSA, config.TypeEd25519, config.TypeMLKEM:
 		return "", fmt.Errorf("keypair types must be generated using dedicated keypair methods, not GenerateWithCharset")
 	default:
 		return "", fmt.Errorf("unknown generation type: %s", genType)
@@ -253,5 +258,27 @@ func parseCurve(curveName string) (elliptic.Curve, error) {
 		return elliptic.P521(), nil
 	default:
 		return nil, fmt.Errorf("unsupported ECDSA curve: %s, must be 'P-256', 'P-384', or 'P-521'", curveName)
+	}
+}
+
+// GenerateMLKEMKeypair generates an ML-KEM (FIPS 203) keypair.
+// Supported params: "768" (ML-KEM-768) and "1024" (ML-KEM-1024).
+// Returns (decapsulationKey, encapsulationKey, error) as raw bytes encoded to string.
+func (g *SecretGenerator) GenerateMLKEMKeypair(param string) (string, string, error) {
+	switch param {
+	case "768":
+		dk, err := mlkem.GenerateKey768()
+		if err != nil {
+			return "", "", fmt.Errorf("failed to generate ML-KEM-768 key: %w", err)
+		}
+		return string(dk.Bytes()), string(dk.EncapsulationKey().Bytes()), nil
+	case "1024":
+		dk, err := mlkem.GenerateKey1024()
+		if err != nil {
+			return "", "", fmt.Errorf("failed to generate ML-KEM-1024 key: %w", err)
+		}
+		return string(dk.Bytes()), string(dk.EncapsulationKey().Bytes()), nil
+	default:
+		return "", "", fmt.Errorf("unsupported ML-KEM parameter: %s, must be '768' or '1024'", param)
 	}
 }

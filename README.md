@@ -95,6 +95,8 @@ All annotations use the prefix `iso.gtrfc.com/`.
 | `length.<field>` | Length for a specific field (overrides `length`) | - |
 | `curve` | Default elliptic curve for `ecdsa` fields | `P-256` |
 | `curve.<field>` | Elliptic curve for a specific field (overrides `curve`) | - |
+| `param` | Default parameter set for post-quantum types | Type-dependent |
+| `param.<field>` | Parameter set for a specific field (overrides `param`) | - |
 | `rotate` | Default rotation interval for all fields | - |
 | `rotate.<field>` | Rotation interval for a specific field (overrides `rotate`) | - |
 | `generated-at` | Timestamp when values were generated (set by operator) | - |
@@ -108,6 +110,7 @@ All annotations use the prefix `iso.gtrfc.com/`.
 | `rsa` | RSA keypair (PKCS#1 PEM) | Key size in bits (`2048`, `4096`) | TLS certificates, signing, encryption |
 | `ecdsa` | ECDSA keypair (PKCS#1 PEM) | *(ignored, use `curve`)* | TLS certificates, JWT signing (ES256/ES384/ES512) |
 | `ed25519` | Ed25519 keypair (PKCS#1 PEM) | *(ignored, fixed 256-bit)* | SSH keys, modern signing |
+| `mlkem` | ML-KEM (FIPS 203) post-quantum keypair (raw bytes) | *(ignored, use `param`)* | Post-quantum key encapsulation |
 
 > **Note:** Kubernetes stores all secret data Base64-encoded. The `bytes` type generates raw bytes which are then Base64-encoded by Kubernetes when stored.
 
@@ -124,6 +127,22 @@ All keys are output in **PKCS#1 PEM** format:
 - RSA: `BEGIN RSA PRIVATE KEY` / `BEGIN RSA PUBLIC KEY`
 - ECDSA: `BEGIN EC PRIVATE KEY` / `BEGIN PUBLIC KEY`
 - Ed25519: `BEGIN PRIVATE KEY` / `BEGIN PUBLIC KEY`
+
+#### ML-KEM (Post-Quantum Key Encapsulation)
+
+ML-KEM (FIPS 203, formerly CRYSTALS-Kyber) generates a post-quantum key encapsulation keypair using Go stdlib `crypto/mlkem`.
+
+| Entry | Content |
+|-------|---------|
+| `<field>` | Decapsulation Key (raw bytes, 64 bytes) |
+| `<field>.pub` | Encapsulation Key (raw bytes, 1184 or 1568 bytes) |
+
+Supported parameter sets via the `param` annotation:
+
+| Parameter | Security Level | Encapsulation Key Size |
+|-----------|---------------|------------------------|
+| `768` (default) | NIST Level 3 (~AES-192) | 1184 bytes |
+| `1024` | NIST Level 5 (~AES-256) | 1568 bytes |
 
 ## Examples
 
@@ -254,7 +273,27 @@ Result:
 
 > **Note:** Ed25519 keys have a fixed size (256-bit). The `length` and `curve` annotations are ignored for this type.
 
-### Mixed: Passwords, RSA, ECDSA, and Ed25519
+### Generate an ML-KEM Keypair (Post-Quantum)
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pq-kem-secret
+  annotations:
+    iso.gtrfc.com/autogenerate: kem-key
+    iso.gtrfc.com/type: mlkem
+    iso.gtrfc.com/param: "768"
+type: Opaque
+```
+
+Result:
+- `kem-key`: ML-KEM-768 Decapsulation Key (raw bytes)
+- `kem-key.pub`: ML-KEM-768 Encapsulation Key (raw bytes)
+
+> **Note:** ML-KEM keys use raw bytes (not PEM). The `length` annotation is ignored; use `param` to select the parameter set (`768` or `1024`).
+
+### Mixed: Passwords, RSA, ECDSA, Ed25519, and ML-KEM
 
 Generate different types of secrets in a single Secret resource:
 
@@ -264,7 +303,7 @@ kind: Secret
 metadata:
   name: mixed-credentials
   annotations:
-    iso.gtrfc.com/autogenerate: password,tls-key,signing-key,ssh-key
+    iso.gtrfc.com/autogenerate: password,tls-key,signing-key,ssh-key,kem-key
     iso.gtrfc.com/type: string
     iso.gtrfc.com/length: "32"
     iso.gtrfc.com/type.tls-key: rsa
@@ -272,6 +311,8 @@ metadata:
     iso.gtrfc.com/type.signing-key: ecdsa
     iso.gtrfc.com/curve.signing-key: "P-384"
     iso.gtrfc.com/type.ssh-key: ed25519
+    iso.gtrfc.com/type.kem-key: mlkem
+    iso.gtrfc.com/param.kem-key: "768"
 type: Opaque
 ```
 
@@ -283,6 +324,8 @@ Result:
 - `signing-key.pub`: ECDSA P-384 Public Key (PEM)
 - `ssh-key`: Ed25519 Private Key (PEM)
 - `ssh-key.pub`: Ed25519 Public Key (PEM)
+- `kem-key`: ML-KEM-768 Decapsulation Key (raw bytes)
+- `kem-key.pub`: ML-KEM-768 Encapsulation Key (raw bytes)
 
 ## Automatic Secret Rotation
 

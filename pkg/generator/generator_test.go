@@ -20,6 +20,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
+	"crypto/mlkem"
 	"crypto/x509"
 	"encoding/pem"
 	"strings"
@@ -461,6 +462,93 @@ func TestGenerateEd25519KeypairUniqueness(t *testing.T) {
 	assert.NotEqual(t, priv1, priv2, "two generated Ed25519 keys should be different")
 }
 
+func TestGenerateMLKEMKeypair(t *testing.T) {
+	gen := NewSecretGenerator()
+
+	tests := []struct {
+		name           string
+		param          string
+		wantDKLen      int
+		wantEKLen      int
+		wantError      bool
+		wantErrContain string
+	}{
+		{"ML-KEM-768", "768", 64, 1184, false, ""},
+		{"ML-KEM-1024", "1024", 64, 1568, false, ""},
+		{"invalid param", "512", 0, 0, true, "unsupported ML-KEM parameter"},
+		{"empty param", "", 0, 0, true, "unsupported ML-KEM parameter"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dk, ek, err := gen.GenerateMLKEMKeypair(tt.param)
+
+			if tt.wantError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrContain)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Len(t, dk, tt.wantDKLen, "decapsulation key length mismatch")
+			assert.Len(t, ek, tt.wantEKLen, "encapsulation key length mismatch")
+		})
+	}
+}
+
+func TestGenerateMLKEMKeypairRoundtrip768(t *testing.T) {
+	gen := NewSecretGenerator()
+
+	dkBytes, ekBytes, err := gen.GenerateMLKEMKeypair("768")
+	require.NoError(t, err)
+
+	// Parse the encapsulation key and perform encapsulation
+	ek, err := mlkem.NewEncapsulationKey768([]byte(ekBytes))
+	require.NoError(t, err)
+
+	sharedKey, ciphertext := ek.Encapsulate()
+
+	// Parse the decapsulation key and perform decapsulation
+	dk, err := mlkem.NewDecapsulationKey768([]byte(dkBytes))
+	require.NoError(t, err)
+
+	decapsulatedKey, err := dk.Decapsulate(ciphertext)
+	require.NoError(t, err)
+
+	assert.Equal(t, sharedKey, decapsulatedKey, "encapsulated and decapsulated shared keys must match")
+}
+
+func TestGenerateMLKEMKeypairRoundtrip1024(t *testing.T) {
+	gen := NewSecretGenerator()
+
+	dkBytes, ekBytes, err := gen.GenerateMLKEMKeypair("1024")
+	require.NoError(t, err)
+
+	// Parse the encapsulation key and perform encapsulation
+	ek, err := mlkem.NewEncapsulationKey1024([]byte(ekBytes))
+	require.NoError(t, err)
+
+	sharedKey, ciphertext := ek.Encapsulate()
+
+	// Parse the decapsulation key and perform decapsulation
+	dk, err := mlkem.NewDecapsulationKey1024([]byte(dkBytes))
+	require.NoError(t, err)
+
+	decapsulatedKey, err := dk.Decapsulate(ciphertext)
+	require.NoError(t, err)
+
+	assert.Equal(t, sharedKey, decapsulatedKey, "encapsulated and decapsulated shared keys must match")
+}
+
+func TestGenerateMLKEMKeypairUniqueness(t *testing.T) {
+	gen := NewSecretGenerator()
+	dk1, _, err := gen.GenerateMLKEMKeypair("768")
+	require.NoError(t, err)
+	dk2, _, err := gen.GenerateMLKEMKeypair("768")
+	require.NoError(t, err)
+	assert.NotEqual(t, dk1, dk2, "two generated ML-KEM keys should be different")
+}
+
 func BenchmarkGenerateRSAKeypair2048(b *testing.B) {
 	gen := NewSecretGenerator()
 	for i := 0; i < b.N; i++ {
@@ -479,5 +567,12 @@ func BenchmarkGenerateEd25519Keypair(b *testing.B) {
 	gen := NewSecretGenerator()
 	for i := 0; i < b.N; i++ {
 		_, _, _ = gen.GenerateEd25519Keypair()
+	}
+}
+
+func BenchmarkGenerateMLKEMKeypair768(b *testing.B) {
+	gen := NewSecretGenerator()
+	for i := 0; i < b.N; i++ {
+		_, _, _ = gen.GenerateMLKEMKeypair("768")
 	}
 }

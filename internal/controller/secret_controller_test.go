@@ -3272,9 +3272,9 @@ func TestReconcileMLKEMKeypair(t *testing.T) {
 					Name:      "mlkem-secret",
 					Namespace: "default",
 					Annotations: map[string]string{
-						AnnotationAutogenerate:              "kem-key",
-						AnnotationTypePrefix + "kem-key":    "mlkem",
-						AnnotationParamPrefix + "kem-key":   tt.param,
+						AnnotationAutogenerate:            "kem-key",
+						AnnotationTypePrefix + "kem-key":  "mlkem",
+						AnnotationParamPrefix + "kem-key": tt.param,
 					},
 				},
 			}
@@ -3702,9 +3702,9 @@ func TestReconcileSLHDSAKeypair(t *testing.T) {
 					Name:      "slhdsa-secret",
 					Namespace: "default",
 					Annotations: map[string]string{
-						AnnotationAutogenerate:                    "signing-key",
-						AnnotationTypePrefix + "signing-key":      "slhdsa",
-						AnnotationParamPrefix + "signing-key":     tt.param,
+						AnnotationAutogenerate:                "signing-key",
+						AnnotationTypePrefix + "signing-key":  "slhdsa",
+						AnnotationParamPrefix + "signing-key": tt.param,
 					},
 				},
 			}

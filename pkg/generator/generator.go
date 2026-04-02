@@ -31,6 +31,7 @@ import (
 	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
 	"github.com/cloudflare/circl/sign/mldsa/mldsa87"
 	"github.com/cloudflare/circl/sign/slhdsa"
+
 	"github.com/guided-traffic/internal-secrets-operator/pkg/config"
 )
 

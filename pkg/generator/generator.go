@@ -30,6 +30,7 @@ import (
 
 	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
 	"github.com/cloudflare/circl/sign/mldsa/mldsa87"
+	"github.com/cloudflare/circl/sign/slhdsa"
 	"github.com/guided-traffic/internal-secrets-operator/pkg/config"
 )
 
@@ -59,6 +60,10 @@ type Generator interface {
 	// Supported params: "65" (ML-DSA-65) and "87" (ML-DSA-87).
 	// Returns (privateKey, publicKey, error) as raw bytes encoded to string.
 	GenerateMLDSAKeypair(param string) (string, string, error)
+	// GenerateSLHDSAKeypair generates an SLH-DSA (FIPS 205) keypair.
+	// Supported params: "128s", "128f", "192s", "192f", "256s", "256f".
+	// Returns (privateKey, publicKey, error) as raw bytes encoded to string.
+	GenerateSLHDSAKeypair(param string) (string, string, error)
 	// Generate generates a value based on the specified type
 	Generate(genType string, length int) (string, error)
 	// GenerateWithCharset generates a value based on the specified type with a custom charset
@@ -152,7 +157,7 @@ func (g *SecretGenerator) GenerateWithCharset(genType string, length int, charse
 			return "", err
 		}
 		return string(bytes), nil
-	case config.TypeRSA, config.TypeECDSA, config.TypeEd25519, config.TypeMLKEM, config.TypeMLDSA:
+	case config.TypeRSA, config.TypeECDSA, config.TypeEd25519, config.TypeMLKEM, config.TypeMLDSA, config.TypeSLHDSA:
 		return "", fmt.Errorf("keypair types must be generated using dedicated keypair methods, not GenerateWithCharset")
 	default:
 		return "", fmt.Errorf("unknown generation type: %s", genType)
@@ -325,4 +330,44 @@ func (g *SecretGenerator) GenerateMLDSAKeypair(param string) (string, string, er
 	default:
 		return "", "", fmt.Errorf("unsupported ML-DSA parameter: %s, must be '65' or '87'", param)
 	}
+}
+
+// GenerateSLHDSAKeypair generates an SLH-DSA (FIPS 205) keypair.
+// Supported params: "128s", "128f", "192s", "192f", "256s", "256f".
+// Uses SHA2-based variants. Returns (privateKey, publicKey, error) as raw bytes encoded to string.
+func (g *SecretGenerator) GenerateSLHDSAKeypair(param string) (string, string, error) {
+	var id slhdsa.ID
+	switch param {
+	case "128s":
+		id = slhdsa.SHA2_128s
+	case "128f":
+		id = slhdsa.SHA2_128f
+	case "192s":
+		id = slhdsa.SHA2_192s
+	case "192f":
+		id = slhdsa.SHA2_192f
+	case "256s":
+		id = slhdsa.SHA2_256s
+	case "256f":
+		id = slhdsa.SHA2_256f
+	default:
+		return "", "", fmt.Errorf("unsupported SLH-DSA parameter: %s, must be '128s', '128f', '192s', '192f', '256s', or '256f'", param)
+	}
+
+	pk, sk, err := slhdsa.GenerateKey(rand.Reader, id)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to generate SLH-DSA-%s key: %w", param, err)
+	}
+
+	skBytes, err := sk.MarshalBinary()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to marshal SLH-DSA-%s private key: %w", param, err)
+	}
+
+	pkBytes, err := pk.MarshalBinary()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to marshal SLH-DSA-%s public key: %w", param, err)
+	}
+
+	return string(skBytes), string(pkBytes), nil
 }

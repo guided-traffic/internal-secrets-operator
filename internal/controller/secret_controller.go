@@ -559,6 +559,12 @@ func (r *SecretReconciler) generateValue(
 			return r.Generator.GenerateMLDSAKeypair(param)
 		})
 
+	case config.TypeSLHDSA:
+		param := r.getFieldParam(secret.Annotations, field, config.DefaultSLHDSAParam)
+		return r.generateKeypairValue(field, genType, func() (string, string, error) {
+			return r.Generator.GenerateSLHDSAKeypair(param)
+		})
+
 	case "string", "":
 		charset, charsetErr := r.getCharsetFromAnnotations(secret.Annotations)
 		if charsetErr != nil {

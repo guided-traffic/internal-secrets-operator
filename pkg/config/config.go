@@ -57,6 +57,12 @@ const (
 	// DefaultMLDSAParam is the default ML-DSA parameter set
 	DefaultMLDSAParam = "65"
 
+	// TypeSLHDSA is the SLH-DSA (FIPS 205) post-quantum digital signature type
+	TypeSLHDSA = "slhdsa"
+
+	// DefaultSLHDSAParam is the default SLH-DSA parameter set
+	DefaultSLHDSAParam = "128s"
+
 	// DefaultRSAKeySize is the default RSA key size in bits
 	DefaultRSAKeySize = 2048
 

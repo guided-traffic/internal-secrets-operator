@@ -29,6 +29,7 @@ import (
 
 	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
 	"github.com/cloudflare/circl/sign/mldsa/mldsa87"
+	"github.com/cloudflare/circl/sign/slhdsa"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -679,5 +680,111 @@ func BenchmarkGenerateMLDSAKeypair65(b *testing.B) {
 	gen := NewSecretGenerator()
 	for i := 0; i < b.N; i++ {
 		_, _, _ = gen.GenerateMLDSAKeypair("65")
+	}
+}
+
+func TestGenerateSLHDSAKeypair(t *testing.T) {
+	gen := NewSecretGenerator()
+
+	tests := []struct {
+		name           string
+		param          string
+		wantSKLen      int
+		wantPKLen      int
+		wantError      bool
+		wantErrContain string
+	}{
+		{"SLH-DSA-SHA2-128s", "128s", 64, 32, false, ""},
+		{"SLH-DSA-SHA2-128f", "128f", 64, 32, false, ""},
+		{"SLH-DSA-SHA2-192s", "192s", 96, 48, false, ""},
+		{"SLH-DSA-SHA2-192f", "192f", 96, 48, false, ""},
+		{"SLH-DSA-SHA2-256s", "256s", 128, 64, false, ""},
+		{"SLH-DSA-SHA2-256f", "256f", 128, 64, false, ""},
+		{"invalid param", "999", 0, 0, true, "unsupported SLH-DSA parameter"},
+		{"empty param", "", 0, 0, true, "unsupported SLH-DSA parameter"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sk, pk, err := gen.GenerateSLHDSAKeypair(tt.param)
+
+			if tt.wantError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrContain)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Len(t, sk, tt.wantSKLen, "private key length mismatch")
+			assert.Len(t, pk, tt.wantPKLen, "public key length mismatch")
+		})
+	}
+}
+
+func TestGenerateSLHDSAKeypairRoundtrip128s(t *testing.T) {
+	gen := NewSecretGenerator()
+
+	skBytes, pkBytes, err := gen.GenerateSLHDSAKeypair("128s")
+	require.NoError(t, err)
+
+	// Unmarshal the private key
+	sk := slhdsa.PrivateKey{ID: slhdsa.SHA2_128s}
+	err = sk.UnmarshalBinary([]byte(skBytes))
+	require.NoError(t, err)
+
+	// Unmarshal the public key
+	pk := slhdsa.PublicKey{ID: slhdsa.SHA2_128s}
+	err = pk.UnmarshalBinary([]byte(pkBytes))
+	require.NoError(t, err)
+
+	// Sign a test message
+	msg := []byte("test message for SLH-DSA-128s roundtrip")
+	sig, err := sk.Sign(rand.Reader, msg, nil)
+	require.NoError(t, err)
+
+	// Verify the signature
+	valid := slhdsa.Verify(&pk, slhdsa.NewMessage(msg), sig, nil)
+	assert.True(t, valid, "signature verification must succeed")
+}
+
+func TestGenerateSLHDSAKeypairRoundtrip256f(t *testing.T) {
+	gen := NewSecretGenerator()
+
+	skBytes, pkBytes, err := gen.GenerateSLHDSAKeypair("256f")
+	require.NoError(t, err)
+
+	// Unmarshal the private key
+	sk := slhdsa.PrivateKey{ID: slhdsa.SHA2_256f}
+	err = sk.UnmarshalBinary([]byte(skBytes))
+	require.NoError(t, err)
+
+	// Unmarshal the public key
+	pk := slhdsa.PublicKey{ID: slhdsa.SHA2_256f}
+	err = pk.UnmarshalBinary([]byte(pkBytes))
+	require.NoError(t, err)
+
+	// Sign a test message
+	msg := []byte("test message for SLH-DSA-256f roundtrip")
+	sig, err := sk.Sign(rand.Reader, msg, nil)
+	require.NoError(t, err)
+
+	// Verify the signature
+	valid := slhdsa.Verify(&pk, slhdsa.NewMessage(msg), sig, nil)
+	assert.True(t, valid, "signature verification must succeed")
+}
+
+func TestGenerateSLHDSAKeypairUniqueness(t *testing.T) {
+	gen := NewSecretGenerator()
+	sk1, _, err := gen.GenerateSLHDSAKeypair("128s")
+	require.NoError(t, err)
+	sk2, _, err := gen.GenerateSLHDSAKeypair("128s")
+	require.NoError(t, err)
+	assert.NotEqual(t, sk1, sk2, "two generated SLH-DSA keys should be different")
+}
+
+func BenchmarkGenerateSLHDSAKeypair128s(b *testing.B) {
+	gen := NewSecretGenerator()
+	for i := 0; i < b.N; i++ {
+		_, _, _ = gen.GenerateSLHDSAKeypair("128s")
 	}
 }

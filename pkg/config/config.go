@@ -51,6 +51,12 @@ const (
 	// DefaultMLKEMParam is the default ML-KEM parameter set
 	DefaultMLKEMParam = "768"
 
+	// TypeMLDSA is the ML-DSA (FIPS 204) post-quantum digital signature type
+	TypeMLDSA = "mldsa"
+
+	// DefaultMLDSAParam is the default ML-DSA parameter set
+	DefaultMLDSAParam = "65"
+
 	// DefaultRSAKeySize is the default RSA key size in bits
 	DefaultRSAKeySize = 2048
 

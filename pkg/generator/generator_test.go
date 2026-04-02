@@ -21,11 +21,14 @@ import (
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/mlkem"
+	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
 	"strings"
 	"testing"
 
+	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
+	"github.com/cloudflare/circl/sign/mldsa/mldsa87"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -574,5 +577,107 @@ func BenchmarkGenerateMLKEMKeypair768(b *testing.B) {
 	gen := NewSecretGenerator()
 	for i := 0; i < b.N; i++ {
 		_, _, _ = gen.GenerateMLKEMKeypair("768")
+	}
+}
+
+func TestGenerateMLDSAKeypair(t *testing.T) {
+	gen := NewSecretGenerator()
+
+	tests := []struct {
+		name           string
+		param          string
+		wantSKLen      int
+		wantPKLen      int
+		wantError      bool
+		wantErrContain string
+	}{
+		{"ML-DSA-65", "65", 4032, 1952, false, ""},
+		{"ML-DSA-87", "87", 4896, 2592, false, ""},
+		{"invalid param", "44", 0, 0, true, "unsupported ML-DSA parameter"},
+		{"empty param", "", 0, 0, true, "unsupported ML-DSA parameter"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sk, pk, err := gen.GenerateMLDSAKeypair(tt.param)
+
+			if tt.wantError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrContain)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Len(t, sk, tt.wantSKLen, "private key length mismatch")
+			assert.Len(t, pk, tt.wantPKLen, "public key length mismatch")
+		})
+	}
+}
+
+func TestGenerateMLDSAKeypairRoundtrip65(t *testing.T) {
+	gen := NewSecretGenerator()
+
+	skBytes, pkBytes, err := gen.GenerateMLDSAKeypair("65")
+	require.NoError(t, err)
+
+	// Unmarshal the private key
+	var sk mldsa65.PrivateKey
+	err = sk.UnmarshalBinary([]byte(skBytes))
+	require.NoError(t, err)
+
+	// Unmarshal the public key
+	var pk mldsa65.PublicKey
+	err = pk.UnmarshalBinary([]byte(pkBytes))
+	require.NoError(t, err)
+
+	// Sign a test message
+	msg := []byte("test message for ML-DSA-65 roundtrip")
+	sig, err := sk.Sign(rand.Reader, msg, nil)
+	require.NoError(t, err)
+
+	// Verify the signature
+	valid := mldsa65.Verify(&pk, msg, nil, sig)
+	assert.True(t, valid, "signature verification must succeed")
+}
+
+func TestGenerateMLDSAKeypairRoundtrip87(t *testing.T) {
+	gen := NewSecretGenerator()
+
+	skBytes, pkBytes, err := gen.GenerateMLDSAKeypair("87")
+	require.NoError(t, err)
+
+	// Unmarshal the private key
+	var sk mldsa87.PrivateKey
+	err = sk.UnmarshalBinary([]byte(skBytes))
+	require.NoError(t, err)
+
+	// Unmarshal the public key
+	var pk mldsa87.PublicKey
+	err = pk.UnmarshalBinary([]byte(pkBytes))
+	require.NoError(t, err)
+
+	// Sign a test message
+	msg := []byte("test message for ML-DSA-87 roundtrip")
+	sig, err := sk.Sign(rand.Reader, msg, nil)
+	require.NoError(t, err)
+
+	// Verify the signature
+	valid := mldsa87.Verify(&pk, msg, nil, sig)
+	assert.True(t, valid, "signature verification must succeed")
+}
+
+func TestGenerateMLDSAKeypairUniqueness(t *testing.T) {
+	gen := NewSecretGenerator()
+	sk1, _, err := gen.GenerateMLDSAKeypair("65")
+	require.NoError(t, err)
+	sk2, _, err := gen.GenerateMLDSAKeypair("65")
+	require.NoError(t, err)
+	assert.NotEqual(t, sk1, sk2, "two generated ML-DSA keys should be different")
+}
+
+func BenchmarkGenerateMLDSAKeypair65(b *testing.B) {
+	gen := NewSecretGenerator()
+	for i := 0; i < b.N; i++ {
+		_, _, _ = gen.GenerateMLDSAKeypair("65")
 	}
 }

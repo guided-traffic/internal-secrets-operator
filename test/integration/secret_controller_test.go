@@ -1051,6 +1051,134 @@ func TestKeypairGeneration(t *testing.T) {
 		}
 	})
 
+	t.Run("MLDSAKeypairGeneration", func(t *testing.T) {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-mldsa-keypair",
+				Namespace: ns.Name,
+				Annotations: map[string]string{
+					AnnotationAutogenerate:                "signing-key",
+					AnnotationTypePrefix + "signing-key":  "mldsa",
+					AnnotationParamPrefix + "signing-key": "65",
+				},
+			},
+			Type: corev1.SecretTypeOpaque,
+		}
+
+		if err := tc.client.Create(ctx, secret); err != nil {
+			t.Fatalf("failed to create secret: %v", err)
+		}
+
+		key := types.NamespacedName{Name: secret.Name, Namespace: ns.Name}
+		updatedSecret, err := waitForSecretField(ctx, tc.client, key, "signing-key")
+		if err != nil {
+			t.Fatalf("failed to get secret: %v", err)
+		}
+
+		// Verify private key (signing key)
+		sk, ok := updatedSecret.Data["signing-key"]
+		if !ok {
+			t.Fatal("expected signing-key field to be generated")
+		}
+		if len(sk) != 4032 {
+			t.Errorf("expected private key length 4032 (ML-DSA-65), got %d", len(sk))
+		}
+
+		// Verify public key (verification key)
+		pk, ok := updatedSecret.Data["signing-key.pub"]
+		if !ok {
+			t.Fatal("expected signing-key.pub field to be generated")
+		}
+		if len(pk) != 1952 {
+			t.Errorf("expected public key length 1952 (ML-DSA-65), got %d", len(pk))
+		}
+
+		if _, ok := updatedSecret.Annotations[AnnotationGeneratedAt]; !ok {
+			t.Error("expected generated-at annotation")
+		}
+	})
+
+	t.Run("MLDSA87KeypairGeneration", func(t *testing.T) {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-mldsa-87-keypair",
+				Namespace: ns.Name,
+				Annotations: map[string]string{
+					AnnotationAutogenerate:                "signing-key",
+					AnnotationTypePrefix + "signing-key":  "mldsa",
+					AnnotationParamPrefix + "signing-key": "87",
+				},
+			},
+			Type: corev1.SecretTypeOpaque,
+		}
+
+		if err := tc.client.Create(ctx, secret); err != nil {
+			t.Fatalf("failed to create secret: %v", err)
+		}
+
+		key := types.NamespacedName{Name: secret.Name, Namespace: ns.Name}
+		updatedSecret, err := waitForSecretField(ctx, tc.client, key, "signing-key")
+		if err != nil {
+			t.Fatalf("failed to get secret: %v", err)
+		}
+
+		// Verify private key
+		sk, ok := updatedSecret.Data["signing-key"]
+		if !ok {
+			t.Fatal("expected signing-key field to be generated")
+		}
+		if len(sk) != 4896 {
+			t.Errorf("expected private key length 4896 (ML-DSA-87), got %d", len(sk))
+		}
+
+		// Verify public key
+		pk, ok := updatedSecret.Data["signing-key.pub"]
+		if !ok {
+			t.Fatal("expected signing-key.pub field to be generated")
+		}
+		if len(pk) != 2592 {
+			t.Errorf("expected public key length 2592 (ML-DSA-87), got %d", len(pk))
+		}
+	})
+
+	t.Run("MLDSADefaultParam", func(t *testing.T) {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-mldsa-default-param",
+				Namespace: ns.Name,
+				Annotations: map[string]string{
+					AnnotationAutogenerate:               "signing-key",
+					AnnotationTypePrefix + "signing-key": "mldsa",
+					// No param annotation → default 65
+				},
+			},
+			Type: corev1.SecretTypeOpaque,
+		}
+
+		if err := tc.client.Create(ctx, secret); err != nil {
+			t.Fatalf("failed to create secret: %v", err)
+		}
+
+		key := types.NamespacedName{Name: secret.Name, Namespace: ns.Name}
+		updatedSecret, err := waitForSecretField(ctx, tc.client, key, "signing-key")
+		if err != nil {
+			t.Fatalf("failed to get secret: %v", err)
+		}
+
+		if _, ok := updatedSecret.Data["signing-key"]; !ok {
+			t.Fatal("expected signing-key field to be generated")
+		}
+		if _, ok := updatedSecret.Data["signing-key.pub"]; !ok {
+			t.Fatal("expected signing-key.pub field to be generated")
+		}
+
+		// Default should be ML-DSA-65 (private key = 4032 bytes)
+		sk := updatedSecret.Data["signing-key"]
+		if len(sk) != 4032 {
+			t.Errorf("expected private key length 4032 (ML-DSA-65 default), got %d", len(sk))
+		}
+	})
+
 	t.Run("KeypairExistingValuePreserved", func(t *testing.T) {
 		secret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{

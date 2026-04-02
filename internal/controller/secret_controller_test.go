@@ -3465,6 +3465,219 @@ func TestReconcileMLKEMInvalidParam(t *testing.T) {
 	}
 }
 
+func TestReconcileMLDSAKeypair(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	tests := []struct {
+		name  string
+		param string
+	}{
+		{"ML-DSA-65", "65"},
+		{"ML-DSA-87", "87"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "mldsa-secret",
+					Namespace: "default",
+					Annotations: map[string]string{
+						AnnotationAutogenerate:                "signing-key",
+						AnnotationTypePrefix + "signing-key":  "mldsa",
+						AnnotationParamPrefix + "signing-key": tt.param,
+					},
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(secret).
+				Build()
+
+			gen := generator.NewSecretGenerator()
+			fakeRecorder := NewTestEventRecorder(10)
+
+			reconciler := &SecretReconciler{
+				Client:        fakeClient,
+				Scheme:        scheme,
+				Generator:     gen,
+				Config:        config.NewDefaultConfig(),
+				EventRecorder: fakeRecorder,
+			}
+
+			req := ctrl.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      secret.Name,
+					Namespace: secret.Namespace,
+				},
+			}
+
+			_, err := reconciler.Reconcile(context.Background(), req)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			var updatedSecret corev1.Secret
+			err = fakeClient.Get(context.Background(), req.NamespacedName, &updatedSecret)
+			if err != nil {
+				t.Fatalf("failed to get secret: %v", err)
+			}
+
+			// Verify private key (signing key) was generated
+			if _, ok := updatedSecret.Data["signing-key"]; !ok {
+				t.Fatal("expected signing-key field to be generated")
+			}
+
+			// Verify public key (verification key) was generated
+			if _, ok := updatedSecret.Data["signing-key.pub"]; !ok {
+				t.Fatal("expected signing-key.pub field to be generated")
+			}
+
+			// Verify generated-at annotation
+			if _, ok := updatedSecret.Annotations[AnnotationGeneratedAt]; !ok {
+				t.Error("expected generated-at annotation to be set")
+			}
+		})
+	}
+}
+
+// TestReconcileMLDSAKeypairDefaultParam tests ML-DSA with default param (65)
+func TestReconcileMLDSAKeypairDefaultParam(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "mldsa-default-param",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationAutogenerate:               "signing-key",
+				AnnotationTypePrefix + "signing-key": "mldsa",
+				// No param annotation → default 65
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret).
+		Build()
+
+	gen := generator.NewSecretGenerator()
+	fakeRecorder := NewTestEventRecorder(10)
+
+	reconciler := &SecretReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Generator:     gen,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: fakeRecorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      secret.Name,
+			Namespace: secret.Namespace,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var updatedSecret corev1.Secret
+	err = fakeClient.Get(context.Background(), req.NamespacedName, &updatedSecret)
+	if err != nil {
+		t.Fatalf("failed to get secret: %v", err)
+	}
+
+	if _, ok := updatedSecret.Data["signing-key"]; !ok {
+		t.Fatal("expected signing-key field to be generated")
+	}
+	if _, ok := updatedSecret.Data["signing-key.pub"]; !ok {
+		t.Fatal("expected signing-key.pub field to be generated")
+	}
+
+	// Verify the key length matches ML-DSA-65 (private key = 4032 bytes)
+	sk := updatedSecret.Data["signing-key"]
+	if len(sk) != 4032 {
+		t.Errorf("expected private key length 4032 (ML-DSA-65), got %d", len(sk))
+	}
+}
+
+// TestReconcileMLDSAInvalidParam tests that an invalid ML-DSA param emits a warning
+func TestReconcileMLDSAInvalidParam(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "mldsa-invalid-param",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationAutogenerate:                "signing-key",
+				AnnotationTypePrefix + "signing-key":  "mldsa",
+				AnnotationParamPrefix + "signing-key": "44",
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret).
+		Build()
+
+	gen := generator.NewSecretGenerator()
+	fakeRecorder := NewTestEventRecorder(10)
+
+	reconciler := &SecretReconciler{
+		Client:        fakeClient,
+		Scheme:        scheme,
+		Generator:     gen,
+		Config:        config.NewDefaultConfig(),
+		EventRecorder: fakeRecorder,
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      secret.Name,
+			Namespace: secret.Namespace,
+		},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify warning event was emitted
+	select {
+	case event := <-fakeRecorder.Events:
+		expectedPrefix := fmt.Sprintf("%s %s", corev1.EventTypeWarning, EventReasonGenerationFailed)
+		if !strings.HasPrefix(event, expectedPrefix) {
+			t.Errorf("expected event to start with %q, got %q", expectedPrefix, event)
+		}
+	default:
+		t.Error("expected a warning event for invalid ML-DSA param")
+	}
+
+	// Verify no data was written
+	var updatedSecret corev1.Secret
+	err = fakeClient.Get(context.Background(), req.NamespacedName, &updatedSecret)
+	if err != nil {
+		t.Fatalf("failed to get secret: %v", err)
+	}
+	if _, ok := updatedSecret.Data["signing-key"]; ok {
+		t.Error("expected no data to be written for invalid ML-DSA param")
+	}
+}
+
 // TestGetFieldParam tests the getFieldParam helper function
 func TestGetFieldParam(t *testing.T) {
 	reconciler := &SecretReconciler{

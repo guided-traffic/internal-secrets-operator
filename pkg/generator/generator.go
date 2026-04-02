@@ -28,6 +28,8 @@ import (
 	"encoding/pem"
 	"fmt"
 
+	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
+	"github.com/cloudflare/circl/sign/mldsa/mldsa87"
 	"github.com/guided-traffic/internal-secrets-operator/pkg/config"
 )
 
@@ -53,6 +55,10 @@ type Generator interface {
 	// Supported params: "768" (ML-KEM-768) and "1024" (ML-KEM-1024).
 	// Returns (decapsulationKey, encapsulationKey, error) as raw bytes encoded to string.
 	GenerateMLKEMKeypair(param string) (string, string, error)
+	// GenerateMLDSAKeypair generates an ML-DSA (FIPS 204) keypair.
+	// Supported params: "65" (ML-DSA-65) and "87" (ML-DSA-87).
+	// Returns (privateKey, publicKey, error) as raw bytes encoded to string.
+	GenerateMLDSAKeypair(param string) (string, string, error)
 	// Generate generates a value based on the specified type
 	Generate(genType string, length int) (string, error)
 	// GenerateWithCharset generates a value based on the specified type with a custom charset
@@ -146,7 +152,7 @@ func (g *SecretGenerator) GenerateWithCharset(genType string, length int, charse
 			return "", err
 		}
 		return string(bytes), nil
-	case config.TypeRSA, config.TypeECDSA, config.TypeEd25519, config.TypeMLKEM:
+	case config.TypeRSA, config.TypeECDSA, config.TypeEd25519, config.TypeMLKEM, config.TypeMLDSA:
 		return "", fmt.Errorf("keypair types must be generated using dedicated keypair methods, not GenerateWithCharset")
 	default:
 		return "", fmt.Errorf("unknown generation type: %s", genType)
@@ -280,5 +286,43 @@ func (g *SecretGenerator) GenerateMLKEMKeypair(param string) (string, string, er
 		return string(dk.Bytes()), string(dk.EncapsulationKey().Bytes()), nil
 	default:
 		return "", "", fmt.Errorf("unsupported ML-KEM parameter: %s, must be '768' or '1024'", param)
+	}
+}
+
+// GenerateMLDSAKeypair generates an ML-DSA (FIPS 204) keypair.
+// Supported params: "65" (ML-DSA-65) and "87" (ML-DSA-87).
+// Returns (privateKey, publicKey, error) as raw bytes encoded to string.
+func (g *SecretGenerator) GenerateMLDSAKeypair(param string) (string, string, error) {
+	switch param {
+	case "65":
+		pk, sk, err := mldsa65.GenerateKey(rand.Reader)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to generate ML-DSA-65 key: %w", err)
+		}
+		skBytes, err := sk.MarshalBinary()
+		if err != nil {
+			return "", "", fmt.Errorf("failed to marshal ML-DSA-65 private key: %w", err)
+		}
+		pkBytes, err := pk.MarshalBinary()
+		if err != nil {
+			return "", "", fmt.Errorf("failed to marshal ML-DSA-65 public key: %w", err)
+		}
+		return string(skBytes), string(pkBytes), nil
+	case "87":
+		pk, sk, err := mldsa87.GenerateKey(rand.Reader)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to generate ML-DSA-87 key: %w", err)
+		}
+		skBytes, err := sk.MarshalBinary()
+		if err != nil {
+			return "", "", fmt.Errorf("failed to marshal ML-DSA-87 private key: %w", err)
+		}
+		pkBytes, err := pk.MarshalBinary()
+		if err != nil {
+			return "", "", fmt.Errorf("failed to marshal ML-DSA-87 public key: %w", err)
+		}
+		return string(skBytes), string(pkBytes), nil
+	default:
+		return "", "", fmt.Errorf("unsupported ML-DSA parameter: %s, must be '65' or '87'", param)
 	}
 }

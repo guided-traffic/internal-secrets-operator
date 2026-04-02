@@ -553,6 +553,12 @@ func (r *SecretReconciler) generateValue(
 			return r.Generator.GenerateMLKEMKeypair(param)
 		})
 
+	case config.TypeMLDSA:
+		param := r.getFieldParam(secret.Annotations, field, config.DefaultMLDSAParam)
+		return r.generateKeypairValue(field, genType, func() (string, string, error) {
+			return r.Generator.GenerateMLDSAKeypair(param)
+		})
+
 	case "string", "":
 		charset, charsetErr := r.getCharsetFromAnnotations(secret.Annotations)
 		if charsetErr != nil {

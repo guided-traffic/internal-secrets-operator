@@ -23,13 +23,13 @@ The operator uses annotations with the prefix `iso.gtrfc.com/`:
 | Annotation | Description | Values |
 |------------|-------------|--------|
 | `autogenerate` | Comma-separated list of field names to auto-generate | e.g., `password`, `password,api-key` |
-| `type` | Default type of generated value for all fields | `string` (default), `bytes`, `rsa`, `ecdsa`, `ed25519`, `mlkem` |
+| `type` | Default type of generated value for all fields | `string` (default), `bytes`, `rsa`, `ecdsa`, `ed25519`, `mlkem`, `mldsa` |
 | `length` | Default length for all fields | Integer (default: 32) |
-| `type.<field>` | Type for a specific field (overrides default) | `string`, `bytes`, `rsa`, `ecdsa`, `ed25519`, `mlkem` |
+| `type.<field>` | Type for a specific field (overrides default) | `string`, `bytes`, `rsa`, `ecdsa`, `ed25519`, `mlkem`, `mldsa` |
 | `length.<field>` | Length for a specific field (overrides default) | Integer |
 | `curve` | Default elliptic curve for `ecdsa` fields | `P-256` (default), `P-384`, `P-521` |
 | `curve.<field>` | Elliptic curve for a specific field (overrides default) | `P-256`, `P-384`, `P-521` |
-| `param` | Default parameter set for post-quantum types | Type-dependent (e.g., `768`, `1024` for `mlkem`) |
+| `param` | Default parameter set for post-quantum types | Type-dependent (e.g., `768`, `1024` for `mlkem`; `65`, `87` for `mldsa`) |
 | `param.<field>` | Parameter set for a specific field (overrides default) | Type-dependent |
 | `rotate` | Default rotation interval for all fields | Duration (e.g., `24h`, `7d`) |
 | `rotate.<field>` | Rotation interval for a specific field (overrides default) | Duration |
@@ -52,12 +52,15 @@ The operator uses annotations with the prefix `iso.gtrfc.com/`:
 | `ecdsa` | ECDSA keypair (PKCS#1 PEM) | *(ignored, use `curve` annotation)* | TLS certificates, JWT signing (ES256/ES384/ES512) |
 | `ed25519` | Ed25519 keypair (PKCS#1 PEM) | *(ignored, fixed 256-bit)* | SSH keys, modern signing |
 | `mlkem` | ML-KEM (FIPS 203) post-quantum keypair (raw bytes) | *(ignored, use `param` annotation)* | Post-quantum key encapsulation |
+| `mldsa` | ML-DSA (FIPS 204) post-quantum signature keypair (raw bytes) | *(ignored, use `param` annotation)* | Post-quantum digital signatures |
 
 **Note:** Kubernetes stores all secret data Base64-encoded. The `bytes` type generates raw bytes which are then Base64-encoded by Kubernetes when stored.
 
 **Note:** For keypair types (`rsa`, `ecdsa`, `ed25519`), the operator generates two Secret data entries per field: `<field>` (Private Key PEM) and `<field>.pub` (Public Key PEM). All keys use PKCS#1 PEM format.
 
 **Note:** For `mlkem`, the operator generates two Secret data entries per field: `<field>` (Decapsulation Key, raw bytes) and `<field>.pub` (Encapsulation Key, raw bytes). ML-KEM supports parameter sets `768` (default, NIST Level 3) and `1024` (NIST Level 5) via the `param` annotation. Uses Go stdlib `crypto/mlkem`.
+
+**Note:** For `mldsa`, the operator generates two Secret data entries per field: `<field>` (Private Key / Signing Key, raw bytes) and `<field>.pub` (Public Key / Verification Key, raw bytes). ML-DSA supports parameter sets `65` (default, NIST Level 3) and `87` (NIST Level 5) via the `param` annotation. Uses `github.com/cloudflare/circl`.
 
 ### Behavior
 

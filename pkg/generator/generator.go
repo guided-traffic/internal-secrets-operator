@@ -21,11 +21,16 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
+	"crypto/mlkem"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+
+	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
+	"github.com/cloudflare/circl/sign/mldsa/mldsa87"
+	"github.com/cloudflare/circl/sign/slhdsa"
 
 	"github.com/guided-traffic/internal-secrets-operator/pkg/config"
 )
@@ -48,6 +53,18 @@ type Generator interface {
 	// GenerateEd25519Keypair generates an Ed25519 keypair.
 	// Returns (privateKeyPEM, publicKeyPEM, error).
 	GenerateEd25519Keypair() (string, string, error)
+	// GenerateMLKEMKeypair generates an ML-KEM (FIPS 203) keypair.
+	// Supported params: "768" (ML-KEM-768) and "1024" (ML-KEM-1024).
+	// Returns (decapsulationKey, encapsulationKey, error) as raw bytes encoded to string.
+	GenerateMLKEMKeypair(param string) (string, string, error)
+	// GenerateMLDSAKeypair generates an ML-DSA (FIPS 204) keypair.
+	// Supported params: "65" (ML-DSA-65) and "87" (ML-DSA-87).
+	// Returns (privateKey, publicKey, error) as raw bytes encoded to string.
+	GenerateMLDSAKeypair(param string) (string, string, error)
+	// GenerateSLHDSAKeypair generates an SLH-DSA (FIPS 205) keypair.
+	// Supported params: "128s", "128f", "192s", "192f", "256s", "256f".
+	// Returns (privateKey, publicKey, error) as raw bytes encoded to string.
+	GenerateSLHDSAKeypair(param string) (string, string, error)
 	// Generate generates a value based on the specified type
 	Generate(genType string, length int) (string, error)
 	// GenerateWithCharset generates a value based on the specified type with a custom charset
@@ -141,7 +158,7 @@ func (g *SecretGenerator) GenerateWithCharset(genType string, length int, charse
 			return "", err
 		}
 		return string(bytes), nil
-	case config.TypeRSA, config.TypeECDSA, config.TypeEd25519:
+	case config.TypeRSA, config.TypeECDSA, config.TypeEd25519, config.TypeMLKEM, config.TypeMLDSA, config.TypeSLHDSA:
 		return "", fmt.Errorf("keypair types must be generated using dedicated keypair methods, not GenerateWithCharset")
 	default:
 		return "", fmt.Errorf("unknown generation type: %s", genType)
@@ -254,4 +271,104 @@ func parseCurve(curveName string) (elliptic.Curve, error) {
 	default:
 		return nil, fmt.Errorf("unsupported ECDSA curve: %s, must be 'P-256', 'P-384', or 'P-521'", curveName)
 	}
+}
+
+// GenerateMLKEMKeypair generates an ML-KEM (FIPS 203) keypair.
+// Supported params: "768" (ML-KEM-768) and "1024" (ML-KEM-1024).
+// Returns (decapsulationKey, encapsulationKey, error) as raw bytes encoded to string.
+func (g *SecretGenerator) GenerateMLKEMKeypair(param string) (string, string, error) {
+	switch param {
+	case "768":
+		dk, err := mlkem.GenerateKey768()
+		if err != nil {
+			return "", "", fmt.Errorf("failed to generate ML-KEM-768 key: %w", err)
+		}
+		return string(dk.Bytes()), string(dk.EncapsulationKey().Bytes()), nil
+	case "1024":
+		dk, err := mlkem.GenerateKey1024()
+		if err != nil {
+			return "", "", fmt.Errorf("failed to generate ML-KEM-1024 key: %w", err)
+		}
+		return string(dk.Bytes()), string(dk.EncapsulationKey().Bytes()), nil
+	default:
+		return "", "", fmt.Errorf("unsupported ML-KEM parameter: %s, must be '768' or '1024'", param)
+	}
+}
+
+// GenerateMLDSAKeypair generates an ML-DSA (FIPS 204) keypair.
+// Supported params: "65" (ML-DSA-65) and "87" (ML-DSA-87).
+// Returns (privateKey, publicKey, error) as raw bytes encoded to string.
+func (g *SecretGenerator) GenerateMLDSAKeypair(param string) (string, string, error) {
+	switch param {
+	case "65":
+		pk, sk, err := mldsa65.GenerateKey(rand.Reader)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to generate ML-DSA-65 key: %w", err)
+		}
+		skBytes, err := sk.MarshalBinary()
+		if err != nil {
+			return "", "", fmt.Errorf("failed to marshal ML-DSA-65 private key: %w", err)
+		}
+		pkBytes, err := pk.MarshalBinary()
+		if err != nil {
+			return "", "", fmt.Errorf("failed to marshal ML-DSA-65 public key: %w", err)
+		}
+		return string(skBytes), string(pkBytes), nil
+	case "87":
+		pk, sk, err := mldsa87.GenerateKey(rand.Reader)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to generate ML-DSA-87 key: %w", err)
+		}
+		skBytes, err := sk.MarshalBinary()
+		if err != nil {
+			return "", "", fmt.Errorf("failed to marshal ML-DSA-87 private key: %w", err)
+		}
+		pkBytes, err := pk.MarshalBinary()
+		if err != nil {
+			return "", "", fmt.Errorf("failed to marshal ML-DSA-87 public key: %w", err)
+		}
+		return string(skBytes), string(pkBytes), nil
+	default:
+		return "", "", fmt.Errorf("unsupported ML-DSA parameter: %s, must be '65' or '87'", param)
+	}
+}
+
+// GenerateSLHDSAKeypair generates an SLH-DSA (FIPS 205) keypair.
+// Supported params: "128s", "128f", "192s", "192f", "256s", "256f".
+// Uses SHA2-based variants. Returns (privateKey, publicKey, error) as raw bytes encoded to string.
+func (g *SecretGenerator) GenerateSLHDSAKeypair(param string) (string, string, error) {
+	var id slhdsa.ID
+	switch param {
+	case "128s":
+		id = slhdsa.SHA2_128s
+	case "128f":
+		id = slhdsa.SHA2_128f
+	case "192s":
+		id = slhdsa.SHA2_192s
+	case "192f":
+		id = slhdsa.SHA2_192f
+	case "256s":
+		id = slhdsa.SHA2_256s
+	case "256f":
+		id = slhdsa.SHA2_256f
+	default:
+		return "", "", fmt.Errorf("unsupported SLH-DSA parameter: %s, must be '128s', '128f', '192s', '192f', '256s', or '256f'", param)
+	}
+
+	pk, sk, err := slhdsa.GenerateKey(rand.Reader, id)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to generate SLH-DSA-%s key: %w", param, err)
+	}
+
+	skBytes, err := sk.MarshalBinary()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to marshal SLH-DSA-%s private key: %w", param, err)
+	}
+
+	pkBytes, err := pk.MarshalBinary()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to marshal SLH-DSA-%s public key: %w", param, err)
+	}
+
+	return string(skBytes), string(pkBytes), nil
 }

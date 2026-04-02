@@ -24,7 +24,7 @@ controller:
 # See: /etc/secret-operator/config.yaml
 config:
   defaults:
-    # Default generation type: "string" or "bytes"
+    # Default generation type: "string", "bytes", "rsa", "ecdsa", "ed25519", "mlkem", "mldsa", "slhdsa"
     type: string
     # Default length for generated values
     length: 32

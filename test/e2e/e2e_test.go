@@ -77,6 +77,9 @@ const (
 	// AnnotationStringAllowedSpecialChars specifies which special characters to use
 	AnnotationStringAllowedSpecialChars = AnnotationPrefix + "string.allowedSpecialChars"
 
+	// AnnotationParamPrefix is the prefix for field-specific param annotations
+	AnnotationParamPrefix = AnnotationPrefix + "param."
+
 	// testNamespace is the namespace used for E2E tests
 	testNamespace = "default"
 
@@ -107,6 +110,9 @@ var testSecretNames = []string{
 	"test-charset-custom-special-chars",
 	"test-charset-lowercase-numbers",
 	"test-charset-invalid-empty",
+	"test-pq-mlkem",
+	"test-pq-mldsa",
+	"test-pq-slhdsa",
 }
 
 func TestMain(m *testing.M) {
@@ -1288,4 +1294,169 @@ func TestSecretCharsetInvalidConfiguration(t *testing.T) {
 	}
 
 	t.Log("Invalid charset configuration test passed - operator correctly rejected the configuration")
+}
+
+func TestSecretMLKEMKeypairGeneration(t *testing.T) {
+	defer cleanupSecret(t, "test-pq-mlkem")
+
+	ctx := context.Background()
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pq-mlkem",
+			Namespace: testNamespace,
+			Annotations: map[string]string{
+				AnnotationAutogenerate:            "kem-key",
+				AnnotationTypePrefix + "kem-key":  "mlkem",
+				AnnotationParamPrefix + "kem-key": "768",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{},
+	}
+
+	_, err := clientset.CoreV1().Secrets(testNamespace).Create(ctx, secret, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("Failed to create secret: %v", err)
+	}
+
+	var processedSecret *corev1.Secret
+	err = wait.PollUntilContextTimeout(ctx, pollInterval, pollTimeout, true, func(ctx context.Context) (bool, error) {
+		s, err := clientset.CoreV1().Secrets(testNamespace).Get(ctx, "test-pq-mlkem", metav1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+		_, hasPrivate := s.Data["kem-key"]
+		_, hasPublic := s.Data["kem-key.pub"]
+		if hasPrivate && hasPublic && s.Annotations[AnnotationGeneratedAt] != "" {
+			processedSecret = s
+			return true, nil
+		}
+		return false, nil
+	})
+	if err != nil {
+		t.Fatalf("Timeout waiting for ML-KEM secret to be processed: %v", err)
+	}
+
+	// Verify ML-KEM-768 key sizes: decapsulation key = 64 bytes, encapsulation key = 1184 bytes
+	dk := processedSecret.Data["kem-key"]
+	if len(dk) != 64 {
+		t.Errorf("Expected decapsulation key length 64, got %d", len(dk))
+	}
+	ek := processedSecret.Data["kem-key.pub"]
+	if len(ek) != 1184 {
+		t.Errorf("Expected encapsulation key length 1184, got %d", len(ek))
+	}
+
+	t.Log("ML-KEM keypair generation E2E test passed")
+}
+
+func TestSecretMLDSAKeypairGeneration(t *testing.T) {
+	defer cleanupSecret(t, "test-pq-mldsa")
+
+	ctx := context.Background()
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pq-mldsa",
+			Namespace: testNamespace,
+			Annotations: map[string]string{
+				AnnotationAutogenerate:                "signing-key",
+				AnnotationTypePrefix + "signing-key":  "mldsa",
+				AnnotationParamPrefix + "signing-key": "65",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{},
+	}
+
+	_, err := clientset.CoreV1().Secrets(testNamespace).Create(ctx, secret, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("Failed to create secret: %v", err)
+	}
+
+	var processedSecret *corev1.Secret
+	err = wait.PollUntilContextTimeout(ctx, pollInterval, pollTimeout, true, func(ctx context.Context) (bool, error) {
+		s, err := clientset.CoreV1().Secrets(testNamespace).Get(ctx, "test-pq-mldsa", metav1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+		_, hasPrivate := s.Data["signing-key"]
+		_, hasPublic := s.Data["signing-key.pub"]
+		if hasPrivate && hasPublic && s.Annotations[AnnotationGeneratedAt] != "" {
+			processedSecret = s
+			return true, nil
+		}
+		return false, nil
+	})
+	if err != nil {
+		t.Fatalf("Timeout waiting for ML-DSA secret to be processed: %v", err)
+	}
+
+	// Verify ML-DSA-65 key sizes: private key = 4032 bytes, public key = 1952 bytes
+	sk := processedSecret.Data["signing-key"]
+	if len(sk) != 4032 {
+		t.Errorf("Expected private key length 4032, got %d", len(sk))
+	}
+	pk := processedSecret.Data["signing-key.pub"]
+	if len(pk) != 1952 {
+		t.Errorf("Expected public key length 1952, got %d", len(pk))
+	}
+
+	t.Log("ML-DSA keypair generation E2E test passed")
+}
+
+func TestSecretSLHDSAKeypairGeneration(t *testing.T) {
+	defer cleanupSecret(t, "test-pq-slhdsa")
+
+	ctx := context.Background()
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pq-slhdsa",
+			Namespace: testNamespace,
+			Annotations: map[string]string{
+				AnnotationAutogenerate:                "signing-key",
+				AnnotationTypePrefix + "signing-key":  "slhdsa",
+				AnnotationParamPrefix + "signing-key": "128s",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{},
+	}
+
+	_, err := clientset.CoreV1().Secrets(testNamespace).Create(ctx, secret, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("Failed to create secret: %v", err)
+	}
+
+	var processedSecret *corev1.Secret
+	err = wait.PollUntilContextTimeout(ctx, pollInterval, pollTimeout, true, func(ctx context.Context) (bool, error) {
+		s, err := clientset.CoreV1().Secrets(testNamespace).Get(ctx, "test-pq-slhdsa", metav1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+		_, hasPrivate := s.Data["signing-key"]
+		_, hasPublic := s.Data["signing-key.pub"]
+		if hasPrivate && hasPublic && s.Annotations[AnnotationGeneratedAt] != "" {
+			processedSecret = s
+			return true, nil
+		}
+		return false, nil
+	})
+	if err != nil {
+		t.Fatalf("Timeout waiting for SLH-DSA secret to be processed: %v", err)
+	}
+
+	// Verify SLH-DSA-128s key sizes: private key = 64 bytes, public key = 32 bytes
+	sk := processedSecret.Data["signing-key"]
+	if len(sk) != 64 {
+		t.Errorf("Expected private key length 64, got %d", len(sk))
+	}
+	pk := processedSecret.Data["signing-key.pub"]
+	if len(pk) != 32 {
+		t.Errorf("Expected public key length 32, got %d", len(pk))
+	}
+
+	t.Log("SLH-DSA keypair generation E2E test passed")
 }

@@ -111,6 +111,8 @@ All annotations use the prefix `iso.gtrfc.com/`.
 | `ecdsa` | ECDSA keypair (PKCS#1 PEM) | *(ignored, use `curve`)* | TLS certificates, JWT signing (ES256/ES384/ES512) |
 | `ed25519` | Ed25519 keypair (PKCS#1 PEM) | *(ignored, fixed 256-bit)* | SSH keys, modern signing |
 | `mlkem` | ML-KEM (FIPS 203) post-quantum keypair (raw bytes) | *(ignored, use `param`)* | Post-quantum key encapsulation |
+| `mldsa` | ML-DSA (FIPS 204) post-quantum signature keypair (raw bytes) | *(ignored, use `param`)* | Post-quantum digital signatures |
+| `slhdsa` | SLH-DSA (FIPS 205) post-quantum hash-based signature keypair (raw bytes) | *(ignored, use `param`)* | Post-quantum digital signatures (conservative) |
 
 > **Note:** Kubernetes stores all secret data Base64-encoded. The `bytes` type generates raw bytes which are then Base64-encoded by Kubernetes when stored.
 
@@ -143,6 +145,44 @@ Supported parameter sets via the `param` annotation:
 |-----------|---------------|------------------------|
 | `768` (default) | NIST Level 3 (~AES-192) | 1184 bytes |
 | `1024` | NIST Level 5 (~AES-256) | 1568 bytes |
+
+#### ML-DSA (Post-Quantum Digital Signatures)
+
+ML-DSA (FIPS 204, formerly CRYSTALS-Dilithium) generates a post-quantum digital signature keypair using `github.com/cloudflare/circl`.
+
+| Entry | Content |
+|-------|---------|
+| `<field>` | Private Key / Signing Key (raw bytes) |
+| `<field>.pub` | Public Key / Verification Key (raw bytes) |
+
+Supported parameter sets via the `param` annotation:
+
+| Parameter | Security Level | Private Key Size | Public Key Size |
+|-----------|---------------|------------------|------------------|
+| `65` (default) | NIST Level 3 (~AES-192) | 4032 bytes | 1952 bytes |
+| `87` | NIST Level 5 (~AES-256) | 4896 bytes | 2592 bytes |
+
+#### SLH-DSA (Post-Quantum Hash-Based Signatures)
+
+SLH-DSA (FIPS 205, formerly SPHINCS+) generates a post-quantum hash-based signature keypair using `github.com/cloudflare/circl`. It offers a conservative alternative to ML-DSA with different security assumptions.
+
+| Entry | Content |
+|-------|---------|
+| `<field>` | Private Key / Signing Key (raw bytes) |
+| `<field>.pub` | Public Key / Verification Key (raw bytes) |
+
+Supported parameter sets via the `param` annotation (`s` = small signatures/slower, `f` = fast signatures/larger):
+
+| Parameter | Security Level | Private Key Size | Public Key Size |
+|-----------|---------------|------------------|------------------|
+| `128s` (default) | NIST Level 1 | 64 bytes | 32 bytes |
+| `128f` | NIST Level 1 | 64 bytes | 32 bytes |
+| `192s` | NIST Level 3 | 96 bytes | 48 bytes |
+| `192f` | NIST Level 3 | 96 bytes | 48 bytes |
+| `256s` | NIST Level 5 | 128 bytes | 64 bytes |
+| `256f` | NIST Level 5 | 128 bytes | 64 bytes |
+
+> **Note:** All post-quantum keys use raw bytes (not PEM). The `length` annotation is ignored; use `param` to select the parameter set.
 
 ## Examples
 
@@ -293,7 +333,47 @@ Result:
 
 > **Note:** ML-KEM keys use raw bytes (not PEM). The `length` annotation is ignored; use `param` to select the parameter set (`768` or `1024`).
 
-### Mixed: Passwords, RSA, ECDSA, Ed25519, and ML-KEM
+### Generate an ML-DSA Keypair (Post-Quantum)
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pq-sig-secret
+  annotations:
+    iso.gtrfc.com/autogenerate: signing-key
+    iso.gtrfc.com/type: mldsa
+    iso.gtrfc.com/param: "65"
+type: Opaque
+```
+
+Result:
+- `signing-key`: ML-DSA-65 Private Key (raw bytes)
+- `signing-key.pub`: ML-DSA-65 Public Key (raw bytes)
+
+> **Note:** ML-DSA keys use raw bytes (not PEM). The `length` annotation is ignored; use `param` to select the parameter set (`65` or `87`).
+
+### Generate an SLH-DSA Keypair (Post-Quantum)
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pq-hash-sig-secret
+  annotations:
+    iso.gtrfc.com/autogenerate: hash-signing-key
+    iso.gtrfc.com/type: slhdsa
+    iso.gtrfc.com/param: "128s"
+type: Opaque
+```
+
+Result:
+- `hash-signing-key`: SLH-DSA-128s Private Key (raw bytes)
+- `hash-signing-key.pub`: SLH-DSA-128s Public Key (raw bytes)
+
+> **Note:** SLH-DSA keys use raw bytes (not PEM). The `length` annotation is ignored; use `param` to select the parameter set (`128s`, `128f`, `192s`, `192f`, `256s`, or `256f`).
+
+### Mixed: Passwords, RSA, ECDSA, Ed25519, and Post-Quantum
 
 Generate different types of secrets in a single Secret resource:
 
@@ -303,16 +383,20 @@ kind: Secret
 metadata:
   name: mixed-credentials
   annotations:
-    iso.gtrfc.com/autogenerate: password,tls-key,signing-key,ssh-key,kem-key
+    iso.gtrfc.com/autogenerate: password,tls-key,ecdsa-key,ssh-key,kem-key,dsa-key,hash-sig-key
     iso.gtrfc.com/type: string
     iso.gtrfc.com/length: "32"
     iso.gtrfc.com/type.tls-key: rsa
     iso.gtrfc.com/length.tls-key: "4096"
-    iso.gtrfc.com/type.signing-key: ecdsa
-    iso.gtrfc.com/curve.signing-key: "P-384"
+    iso.gtrfc.com/type.ecdsa-key: ecdsa
+    iso.gtrfc.com/curve.ecdsa-key: "P-384"
     iso.gtrfc.com/type.ssh-key: ed25519
     iso.gtrfc.com/type.kem-key: mlkem
     iso.gtrfc.com/param.kem-key: "768"
+    iso.gtrfc.com/type.dsa-key: mldsa
+    iso.gtrfc.com/param.dsa-key: "65"
+    iso.gtrfc.com/type.hash-sig-key: slhdsa
+    iso.gtrfc.com/param.hash-sig-key: "128s"
 type: Opaque
 ```
 
@@ -320,12 +404,16 @@ Result:
 - `password`: 32-character alphanumeric string
 - `tls-key`: RSA 4096-bit Private Key (PEM)
 - `tls-key.pub`: RSA 4096-bit Public Key (PEM)
-- `signing-key`: ECDSA P-384 Private Key (PEM)
-- `signing-key.pub`: ECDSA P-384 Public Key (PEM)
+- `ecdsa-key`: ECDSA P-384 Private Key (PEM)
+- `ecdsa-key.pub`: ECDSA P-384 Public Key (PEM)
 - `ssh-key`: Ed25519 Private Key (PEM)
 - `ssh-key.pub`: Ed25519 Public Key (PEM)
 - `kem-key`: ML-KEM-768 Decapsulation Key (raw bytes)
 - `kem-key.pub`: ML-KEM-768 Encapsulation Key (raw bytes)
+- `dsa-key`: ML-DSA-65 Private Key (raw bytes)
+- `dsa-key.pub`: ML-DSA-65 Public Key (raw bytes)
+- `hash-sig-key`: SLH-DSA-128s Private Key (raw bytes)
+- `hash-sig-key.pub`: SLH-DSA-128s Public Key (raw bytes)
 
 ## Automatic Secret Rotation
 
@@ -852,7 +940,7 @@ The operator's default behavior can be customized via Helm values:
 ```yaml
 config:
   defaults:
-    # Default generation type: "string", "bytes", "rsa", "ecdsa", or "ed25519"
+    # Default generation type: "string", "bytes", "rsa", "ecdsa", "ed25519", "mlkem", "mldsa", or "slhdsa"
     type: string
     # Default length for generated values
     length: 32
@@ -905,12 +993,15 @@ When deployed via Helm, the configuration is managed through the `config` sectio
 
 ```yaml
 defaults:
-  # Generation type: "string", "bytes", "rsa", "ecdsa", or "ed25519"
+  # Generation type: "string", "bytes", "rsa", "ecdsa", "ed25519", "mlkem", "mldsa", or "slhdsa"
   # - string: Generates alphanumeric characters (configurable charset)
   # - bytes: Generates raw random bytes
   # - rsa: Generates RSA keypair in PKCS#1 PEM format
   # - ecdsa: Generates ECDSA keypair in PKCS#1 PEM format
   # - ed25519: Generates Ed25519 keypair in PKCS#1 PEM format
+  # - mlkem: Generates ML-KEM (FIPS 203) post-quantum keypair (raw bytes)
+  # - mldsa: Generates ML-DSA (FIPS 204) post-quantum signature keypair (raw bytes)
+  # - slhdsa: Generates SLH-DSA (FIPS 205) post-quantum hash-based signature keypair (raw bytes)
   type: string
 
   # Length of generated values
@@ -956,7 +1047,7 @@ features:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `defaults.type` | string | `string` | Default generation type. Valid values: `string`, `bytes`, `rsa`, `ecdsa`, `ed25519` |
+| `defaults.type` | string | `string` | Default generation type. Valid values: `string`, `bytes`, `rsa`, `ecdsa`, `ed25519`, `mlkem`, `mldsa`, `slhdsa` |
 | `defaults.length` | integer | `32` | Default length for generated values (must be > 0) |
 | `defaults.string.uppercase` | boolean | `true` | Include uppercase letters (A-Z) in generated strings |
 | `defaults.string.lowercase` | boolean | `true` | Include lowercase letters (a-z) in generated strings |
@@ -972,7 +1063,7 @@ features:
 
 The operator validates the configuration at startup and will fail to start if:
 
-1. **Invalid type**: `defaults.type` must be one of `string`, `bytes`, `rsa`, `ecdsa`, or `ed25519`
+1. **Invalid type**: `defaults.type` must be one of `string`, `bytes`, `rsa`, `ecdsa`, `ed25519`, `mlkem`, `mldsa`, or `slhdsa`
 2. **Invalid length**: `defaults.length` must be a positive integer
 3. **No charset enabled**: At least one of `uppercase`, `lowercase`, `numbers`, or `specialChars` must be `true`
 4. **Empty special chars**: If `specialChars` is `true`, `allowedSpecialChars` must not be empty

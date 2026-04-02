@@ -45,6 +45,24 @@ const (
 	// TypeEd25519 is the Ed25519 keypair generation type
 	TypeEd25519 = "ed25519"
 
+	// TypeMLKEM is the ML-KEM (FIPS 203) post-quantum key encapsulation type
+	TypeMLKEM = "mlkem"
+
+	// DefaultMLKEMParam is the default ML-KEM parameter set
+	DefaultMLKEMParam = "768"
+
+	// TypeMLDSA is the ML-DSA (FIPS 204) post-quantum digital signature type
+	TypeMLDSA = "mldsa"
+
+	// DefaultMLDSAParam is the default ML-DSA parameter set
+	DefaultMLDSAParam = "65"
+
+	// TypeSLHDSA is the SLH-DSA (FIPS 205) post-quantum digital signature type
+	TypeSLHDSA = "slhdsa"
+
+	// DefaultSLHDSAParam is the default SLH-DSA parameter set
+	DefaultSLHDSAParam = "128s"
+
 	// DefaultRSAKeySize is the default RSA key size in bits
 	DefaultRSAKeySize = 2048
 

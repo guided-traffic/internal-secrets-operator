@@ -15,8 +15,21 @@
   "automergeType": "pr",
   "automergeStrategy": "squash",
   "ignoreTests": false,
-  "prConcurrentLimit": 5,
+  "prConcurrentLimit": 0,
+  "prHourlyLimit": 0,
+  "branchConcurrentLimit": 0,
   "rebaseWhen": "conflicted",
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "labels": [
+      "dependencies",
+      "security"
+    ],
+    "automerge": true,
+    "schedule": [
+      "at any time"
+    ]
+  },
   "postUpdateOptions": [
     "gomodTidy",
     "gomodUpdateImportPaths"
@@ -56,12 +69,23 @@
       ]
     },
     {
-      "description": "Go modules: automerge minor and patch updates after CI passes",
+      "description": "Go modules: enable indirect dependency updates so transitive vulnerabilities (e.g. golang.org/x/net) are bumped without manual go get",
       "matchManagers": [
         "gomod"
       ],
       "matchDepTypes": [
-        "require"
+        "indirect"
+      ],
+      "enabled": true
+    },
+    {
+      "description": "Go modules: automerge minor and patch updates after CI passes (direct + indirect)",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchDepTypes": [
+        "require",
+        "indirect"
       ],
       "matchUpdateTypes": [
         "minor",
@@ -71,12 +95,13 @@
       "automerge": true
     },
     {
-      "description": "Go modules: require manual review for major updates",
+      "description": "Go modules: require manual review for major updates (direct + indirect)",
       "matchManagers": [
         "gomod"
       ],
       "matchDepTypes": [
-        "require"
+        "require",
+        "indirect"
       ],
       "matchUpdateTypes": [
         "major"

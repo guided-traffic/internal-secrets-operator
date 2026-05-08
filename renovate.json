@@ -204,6 +204,28 @@
       ]
     },
     {
+      "description": "Group golang.org/x/* modules into a single PR (avoid one MR per sub-package)",
+      "matchManagers": [
+        "gomod"
+      ],
+      "groupName": "golang.org/x modules",
+      "groupSlug": "golang-org-x",
+      "matchPackageNames": [
+        "/^golang\\.org\\/x\\//"
+      ]
+    },
+    {
+      "description": "Group go-openapi/swag sub-modules (released in lockstep)",
+      "matchManagers": [
+        "gomod"
+      ],
+      "groupName": "go-openapi/swag modules",
+      "groupSlug": "go-openapi-swag",
+      "matchPackageNames": [
+        "/^github\\.com\\/go-openapi\\/swag(\\/|$)/"
+      ]
+    },
+    {
       "description": "Use 'fix' instead of 'chore' for dependency updates",
       "semanticCommitType": "fix",
       "matchUpdateTypes": [

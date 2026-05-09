@@ -226,14 +226,22 @@
       ]
     },
     {
-      "description": "Use 'fix' instead of 'chore' for dependency updates",
-      "semanticCommitType": "fix",
-      "matchUpdateTypes": [
-        "minor",
-        "patch",
-        "digest",
-        "pin"
-      ]
+      "description": "Use 'fix' instead of 'chore' for all dependency updates (including major)",
+      "semanticCommitType": "fix"
+    },
+    {
+      "description": "GitHub Actions are CI-only tooling, not production code: use 'chore'",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "semanticCommitType": "chore"
+    },
+    {
+      "description": "npm devDependencies (release tooling like semantic-release) are not production code: use 'chore'",
+      "matchManagers": [
+        "npm"
+      ],
+      "semanticCommitType": "chore"
     }
   ],
   "customManagers": [

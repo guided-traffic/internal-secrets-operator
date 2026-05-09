@@ -204,14 +204,44 @@
       ]
     },
     {
-      "description": "Use 'fix' instead of 'chore' for dependency updates",
-      "semanticCommitType": "fix",
-      "matchUpdateTypes": [
-        "minor",
-        "patch",
-        "digest",
-        "pin"
+      "description": "Group golang.org/x/* modules into a single PR (avoid one MR per sub-package)",
+      "matchManagers": [
+        "gomod"
+      ],
+      "groupName": "golang.org/x modules",
+      "groupSlug": "golang-org-x",
+      "matchPackageNames": [
+        "/^golang\\.org\\/x\\//"
       ]
+    },
+    {
+      "description": "Group go-openapi/swag sub-modules (released in lockstep)",
+      "matchManagers": [
+        "gomod"
+      ],
+      "groupName": "go-openapi/swag modules",
+      "groupSlug": "go-openapi-swag",
+      "matchPackageNames": [
+        "/^github\\.com\\/go-openapi\\/swag(\\/|$)/"
+      ]
+    },
+    {
+      "description": "Use 'fix' instead of 'chore' for all dependency updates (including major)",
+      "semanticCommitType": "fix"
+    },
+    {
+      "description": "GitHub Actions are CI-only tooling, not production code: use 'chore'",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "semanticCommitType": "chore"
+    },
+    {
+      "description": "npm devDependencies (release tooling like semantic-release) are not production code: use 'chore'",
+      "matchManagers": [
+        "npm"
+      ],
+      "semanticCommitType": "chore"
     }
   ],
   "customManagers": [

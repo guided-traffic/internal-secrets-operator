@@ -227,6 +227,7 @@
     },
     {
       "description": "Use 'fix' instead of 'chore' for all dependency updates (including major)",
+      "matchPackageNames": ["*"],
       "semanticCommitType": "fix"
     },
     {

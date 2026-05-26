@@ -47,6 +47,12 @@ const (
 	AnnotationParamPrefix  = AnnotationPrefix + "param."
 	AnnotationGeneratedAt  = AnnotationPrefix + "generated-at"
 
+	AnnotationStringUppercase           = AnnotationPrefix + "string.uppercase"
+	AnnotationStringLowercase           = AnnotationPrefix + "string.lowercase"
+	AnnotationStringNumbers             = AnnotationPrefix + "string.numbers"
+	AnnotationStringSpecialChars        = AnnotationPrefix + "string.specialChars"
+	AnnotationStringAllowedSpecialChars = AnnotationPrefix + "string.allowedSpecialChars"
+
 	// Test timeouts
 	timeout  = 10 * time.Second
 	interval = 100 * time.Millisecond

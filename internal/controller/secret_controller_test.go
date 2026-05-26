@@ -1527,16 +1527,38 @@ func TestReconcileWithCustomCharset(t *testing.T) {
 			},
 		},
 		{
-			name: "generate with special chars",
+			name: "generate with special chars only (deterministic)",
+			annotations: map[string]string{
+				AnnotationAutogenerate:              "password",
+				AnnotationStringUppercase:           "false",
+				AnnotationStringLowercase:           "false",
+				AnnotationStringNumbers:             "false",
+				AnnotationStringSpecialChars:        "true",
+				AnnotationStringAllowedSpecialChars: "!@#",
+				AnnotationLength:                    "64",
+			},
+			expectError: false,
+			checkValue: func(t *testing.T, value []byte) {
+				if len(value) != 64 {
+					t.Fatalf("expected length 64, got %d", len(value))
+				}
+				for i, b := range value {
+					if b != '!' && b != '@' && b != '#' {
+						t.Fatalf("non-special byte %q at position %d in %q", b, i, value)
+					}
+				}
+			},
+		},
+		{
+			name: "special chars present in mixed output",
 			annotations: map[string]string{
 				AnnotationAutogenerate:              "password",
 				AnnotationStringSpecialChars:        "true",
 				AnnotationStringAllowedSpecialChars: "!@#",
-				AnnotationLength:                    "100", // Larger to ensure special chars appear
+				AnnotationLength:                    "2048",
 			},
 			expectError: false,
 			checkValue: func(t *testing.T, value []byte) {
-				// With 100 chars, at least one should be a special char (statistically)
 				hasSpecial := false
 				for _, b := range value {
 					if b == '!' || b == '@' || b == '#' {
@@ -1544,9 +1566,53 @@ func TestReconcileWithCustomCharset(t *testing.T) {
 						break
 					}
 				}
-				// Note: This is probabilistic, but with 100 chars it's very unlikely to fail
 				if !hasSpecial {
-					t.Log("Warning: no special chars in generated value (unlikely but possible)")
+					t.Fatalf("no special char in %d-byte output — P<1e-100, generator broken", len(value))
+				}
+				for i, b := range value {
+					isLower := b >= 'a' && b <= 'z'
+					isUpper := b >= 'A' && b <= 'Z'
+					isDigit := b >= '0' && b <= '9'
+					isSpecial := b == '!' || b == '@' || b == '#'
+					if !isLower && !isUpper && !isDigit && !isSpecial {
+						t.Fatalf("disallowed byte %q at position %d", b, i)
+					}
+				}
+			},
+		},
+		{
+			name: "generate with lowercase only",
+			annotations: map[string]string{
+				AnnotationAutogenerate:    "password",
+				AnnotationStringUppercase: "false",
+				AnnotationStringNumbers:   "false",
+			},
+			expectError: false,
+			checkValue: func(t *testing.T, value []byte) {
+				for _, b := range value {
+					if b < 'a' || b > 'z' {
+						t.Errorf("expected only lowercase letters, got byte %c", b)
+					}
+				}
+			},
+		},
+		{
+			name: "custom allowedSpecialChars restricts pool",
+			annotations: map[string]string{
+				AnnotationAutogenerate:              "password",
+				AnnotationStringUppercase:           "false",
+				AnnotationStringLowercase:           "false",
+				AnnotationStringNumbers:             "false",
+				AnnotationStringSpecialChars:        "true",
+				AnnotationStringAllowedSpecialChars: "-_.",
+				AnnotationLength:                    "128",
+			},
+			expectError: false,
+			checkValue: func(t *testing.T, value []byte) {
+				for i, b := range value {
+					if b != '-' && b != '_' && b != '.' {
+						t.Fatalf("byte %q at %d not in restricted set -_.", b, i)
+					}
 				}
 			},
 		},

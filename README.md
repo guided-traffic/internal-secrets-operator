@@ -99,7 +99,18 @@ All annotations use the prefix `iso.gtrfc.com/`.
 | `param.<field>` | Parameter set for a specific field (overrides `param`) | - |
 | `rotate` | Default rotation interval for all fields | - |
 | `rotate.<field>` | Rotation interval for a specific field (overrides `rotate`) | - |
+| `string.uppercase` | Include uppercase letters (A-Z) in generated strings | `true` |
+| `string.lowercase` | Include lowercase letters (a-z) in generated strings | `true` |
+| `string.numbers` | Include numbers (0-9) in generated strings | `true` |
+| `string.specialChars` | Include special characters in generated strings | `false` |
+| `string.allowedSpecialChars` | Which special characters to use (only when `string.specialChars` is `true`) | `!@#$%^&*()_+-=[]{}\|;:,.<>?` |
 | `generated-at` | Timestamp when values were generated (set by operator) | - |
+
+> **Note:** The `string.*` annotations apply to **all** string fields in the Secret. Per-field overrides (e.g. `string.specialChars.<field>`) are **not** supported. To use different character sets per field, split them into separate Secret resources.
+>
+> **Note:** At least one of `string.uppercase`, `string.lowercase`, `string.numbers`, or `string.specialChars` must be `true`. If `string.specialChars` is `true`, `string.allowedSpecialChars` must not be empty.
+>
+> **Note:** Annotation values override config file defaults (see [Configuration](#configuration)).
 
 ### Generation Types
 
@@ -210,6 +221,49 @@ metadata:
     iso.gtrfc.com/length: "64"
 type: Opaque
 ```
+
+### Password with Special Characters
+
+Enable special characters and restrict the allowed set to a custom whitelist:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: password-special-chars
+  annotations:
+    iso.gtrfc.com/autogenerate: password
+    iso.gtrfc.com/length: "24"
+    iso.gtrfc.com/string.specialChars: "true"
+    iso.gtrfc.com/string.allowedSpecialChars: "!@#$%^&*"
+type: Opaque
+```
+
+Result:
+- `password`: 24-character string containing uppercase, lowercase, numbers, and special characters from `!@#$%^&*`.
+
+### Numbers-Only PIN
+
+Disable letters and special characters to generate a numeric-only value (e.g. for a PIN):
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pin-secret
+  annotations:
+    iso.gtrfc.com/autogenerate: pin
+    iso.gtrfc.com/length: "6"
+    iso.gtrfc.com/string.uppercase: "false"
+    iso.gtrfc.com/string.lowercase: "false"
+    iso.gtrfc.com/string.numbers: "true"
+type: Opaque
+```
+
+Result:
+- `pin`: 6-digit numeric string.
+
+> **Note:** Charset annotations apply to **all** string fields in the Secret. To use different character sets per field, split them across separate Secret resources.
 
 ### Generate Raw Bytes (e.g., for Encryption Keys)
 

@@ -69,23 +69,22 @@
       ]
     },
     {
-      "description": "Go modules: enable indirect dependency updates so transitive vulnerabilities (e.g. golang.org/x/net) are bumped without manual go get",
+      "description": "Go modules: disable indirect dependency updates (only direct deps are managed by Renovate)",
       "matchManagers": [
         "gomod"
       ],
       "matchDepTypes": [
         "indirect"
       ],
-      "enabled": true
+      "enabled": false
     },
     {
-      "description": "Go modules: automerge minor and patch updates after CI passes (direct + indirect)",
+      "description": "Go modules: automerge minor and patch updates after CI passes (direct only)",
       "matchManagers": [
         "gomod"
       ],
       "matchDepTypes": [
-        "require",
-        "indirect"
+        "require"
       ],
       "matchUpdateTypes": [
         "minor",
@@ -95,13 +94,12 @@
       "automerge": true
     },
     {
-      "description": "Go modules: require manual review for major updates (direct + indirect)",
+      "description": "Go modules: require manual review for major updates (direct only)",
       "matchManagers": [
         "gomod"
       ],
       "matchDepTypes": [
-        "require",
-        "indirect"
+        "require"
       ],
       "matchUpdateTypes": [
         "major"

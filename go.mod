@@ -1,6 +1,6 @@
 module github.com/guided-traffic/internal-secrets-operator
 
-go 1.26.3
+go 1.26.4
 
 require (
 	github.com/cloudflare/circl v1.6.3

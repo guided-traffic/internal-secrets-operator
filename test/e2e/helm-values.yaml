@@ -41,3 +41,11 @@ config:
     # Short minInterval for testing rotation feature
     minInterval: 5s
     createEvents: true
+  # Global pull-based permissions for E2E tests.
+  # Namespace names and validationPattern must match test/e2e/replication_e2e_test.go
+  globalPullBasedPermissions:
+    - fromNamespace: "e2e-repl-source"
+      toNamespace: "e2e-repl-target"
+      validationPattern: "global-*"
+      allowSecret: true
+      allowConfigMap: true

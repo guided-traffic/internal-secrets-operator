@@ -73,7 +73,7 @@ func ReplicateSecret(source, target *corev1.Secret) {
 // ValidateReplication checks if replication is allowed (mutual consent)
 func ValidateReplication(sourceNamespace string, sourceAllowlist string, targetNamespace string) (bool, error) {
 	if sourceAllowlist == "" {
-		return false, fmt.Errorf("source Secret does not have %s annotation", AnnotationReplicatableFromNamespaces)
+		return false, fmt.Errorf("source object does not have %s annotation", AnnotationReplicatableFromNamespaces)
 	}
 
 	// Split comma-separated list
@@ -146,9 +146,9 @@ func ParseTargetNamespaces(targetNS string) []string {
 	return result
 }
 
-// HasFinalizer checks if a Secret has the replication finalizer
-func HasFinalizer(secret *corev1.Secret) bool {
-	for _, f := range secret.Finalizers {
+// HasFinalizer checks if an object has the replication finalizer
+func HasFinalizer(obj metav1.Object) bool {
+	for _, f := range obj.GetFinalizers() {
 		if f == FinalizerReplicateToCleanup {
 			return true
 		}
@@ -156,45 +156,43 @@ func HasFinalizer(secret *corev1.Secret) bool {
 	return false
 }
 
-// AddFinalizer adds the replication finalizer to a Secret
-func AddFinalizer(secret *corev1.Secret) {
-	if HasFinalizer(secret) {
+// AddFinalizer adds the replication finalizer to an object
+func AddFinalizer(obj metav1.Object) {
+	if HasFinalizer(obj) {
 		return
 	}
-	secret.Finalizers = append(secret.Finalizers, FinalizerReplicateToCleanup)
+	obj.SetFinalizers(append(obj.GetFinalizers(), FinalizerReplicateToCleanup))
 }
 
-// RemoveFinalizer removes the replication finalizer from a Secret
-func RemoveFinalizer(secret *corev1.Secret) {
-	finalizers := make([]string, 0, len(secret.Finalizers))
-	for _, f := range secret.Finalizers {
+// RemoveFinalizer removes the replication finalizer from an object
+func RemoveFinalizer(obj metav1.Object) {
+	current := obj.GetFinalizers()
+	finalizers := make([]string, 0, len(current))
+	for _, f := range current {
 		if f != FinalizerReplicateToCleanup {
 			finalizers = append(finalizers, f)
 		}
 	}
-	secret.Finalizers = finalizers
+	obj.SetFinalizers(finalizers)
 }
 
-// IsOwnedByUs checks if a Secret was replicated by us (has our annotation)
-func IsOwnedByUs(secret *corev1.Secret, expectedSource string) bool {
-	if secret.Annotations == nil {
-		return false
-	}
-	actual := secret.Annotations[AnnotationReplicatedFrom]
-	return actual == expectedSource
+// IsOwnedByUs checks if an object was replicated by us (has our annotation)
+func IsOwnedByUs(obj metav1.Object, expectedSource string) bool {
+	return GetReplicatedFromAnnotation(obj) == expectedSource
 }
 
-// IsBeingDeleted checks if a Secret is being deleted (has DeletionTimestamp)
-func IsBeingDeleted(secret *corev1.Secret) bool {
-	return !secret.DeletionTimestamp.IsZero()
+// IsBeingDeleted checks if an object is being deleted (has DeletionTimestamp)
+func IsBeingDeleted(obj metav1.Object) bool {
+	return !obj.GetDeletionTimestamp().IsZero()
 }
 
 // GetReplicatedFromAnnotation returns the value of the replicated-from annotation
-func GetReplicatedFromAnnotation(secret *corev1.Secret) string {
-	if secret.Annotations == nil {
+func GetReplicatedFromAnnotation(obj metav1.Object) string {
+	annotations := obj.GetAnnotations()
+	if annotations == nil {
 		return ""
 	}
-	return secret.Annotations[AnnotationReplicatedFrom]
+	return annotations[AnnotationReplicatedFrom]
 }
 
 // HasConflictingAnnotations checks if autogenerate and replicate-from are both present

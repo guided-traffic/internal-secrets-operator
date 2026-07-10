@@ -21,9 +21,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
+	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 const (
@@ -81,15 +83,94 @@ const (
 
 // Config holds the operator configuration
 type Config struct {
-	Defaults DefaultsConfig `yaml:"defaults"`
-	Rotation RotationConfig `yaml:"rotation"`
-	Features FeaturesConfig `yaml:"features"`
+	Defaults                   DefaultsConfig              `yaml:"defaults"`
+	Rotation                   RotationConfig              `yaml:"rotation"`
+	Features                   FeaturesConfig              `yaml:"features"`
+	GlobalPullBasedPermissions []GlobalPullBasedPermission `yaml:"globalPullBasedPermissions"`
 }
 
 // FeaturesConfig holds feature toggle configuration
 type FeaturesConfig struct {
-	SecretGenerator  bool `yaml:"secretGenerator"`
-	SecretReplicator bool `yaml:"secretReplicator"`
+	SecretGenerator     bool `yaml:"secretGenerator"`
+	SecretReplicator    bool `yaml:"secretReplicator"`
+	ConfigMapReplicator bool `yaml:"configMapReplicator"`
+}
+
+// GlobalPullBasedPermission grants pull-based replication from source objects
+// without requiring the replicatable-from-namespaces annotation on the source.
+// This is intended for cases where the source object cannot be modified.
+// The target object still needs the replicate-from annotation.
+type GlobalPullBasedPermission struct {
+	// FromNamespace is a comma-separated list of exact namespace names
+	// that objects may be replicated from.
+	FromNamespace string `yaml:"fromNamespace"`
+	// ToNamespace is a comma-separated list of exact namespace names
+	// that objects may be replicated to.
+	ToNamespace string `yaml:"toNamespace"`
+	// ValidationPattern is a glob pattern (*, ?, [a-z]) matched against the
+	// name of the source object. Use "*" to allow all object names.
+	ValidationPattern string `yaml:"validationPattern"`
+	// AllowConfigMap enables this permission for ConfigMaps.
+	AllowConfigMap bool `yaml:"allowConfigMap"`
+	// AllowSecret enables this permission for Secrets.
+	AllowSecret bool `yaml:"allowSecret"`
+}
+
+// FromNamespaces returns the parsed list of source namespaces
+func (p *GlobalPullBasedPermission) FromNamespaces() []string {
+	return splitNamespaceList(p.FromNamespace)
+}
+
+// ToNamespaces returns the parsed list of target namespaces
+func (p *GlobalPullBasedPermission) ToNamespaces() []string {
+	return splitNamespaceList(p.ToNamespace)
+}
+
+// splitNamespaceList splits a comma-separated namespace list, trimming whitespace
+// and dropping empty entries
+func splitNamespaceList(s string) []string {
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, ns := range parts {
+		ns = strings.TrimSpace(ns)
+		if ns != "" {
+			result = append(result, ns)
+		}
+	}
+	return result
+}
+
+// Validate validates a single global pull-based permission
+func (p *GlobalPullBasedPermission) Validate() error {
+	fromNamespaces := p.FromNamespaces()
+	if len(fromNamespaces) == 0 {
+		return fmt.Errorf("fromNamespace must contain at least one namespace")
+	}
+	toNamespaces := p.ToNamespaces()
+	if len(toNamespaces) == 0 {
+		return fmt.Errorf("toNamespace must contain at least one namespace")
+	}
+
+	// Only exact namespace names are supported (no patterns). Validating as
+	// DNS-1123 labels rejects entries like "*" that would silently never match.
+	for _, ns := range append(append([]string{}, fromNamespaces...), toNamespaces...) {
+		if errs := validation.IsDNS1123Label(ns); len(errs) > 0 {
+			return fmt.Errorf("invalid namespace name %q: must be an exact, valid namespace name (patterns are not supported): %s", ns, strings.Join(errs, "; "))
+		}
+	}
+
+	if p.ValidationPattern == "" {
+		return fmt.Errorf("validationPattern must not be empty (use \"*\" to allow all object names)")
+	}
+	if _, err := filepath.Match(p.ValidationPattern, "probe"); err != nil {
+		return fmt.Errorf("invalid glob pattern %q in validationPattern: %w", p.ValidationPattern, err)
+	}
+
+	if !p.AllowSecret && !p.AllowConfigMap {
+		return fmt.Errorf("at least one of allowSecret or allowConfigMap must be true")
+	}
+
+	return nil
 }
 
 // DefaultsConfig holds the default values for secret generation
@@ -199,8 +280,9 @@ func NewDefaultConfig() *Config {
 			CreateEvents: false,
 		},
 		Features: FeaturesConfig{
-			SecretGenerator:  true,
-			SecretReplicator: true,
+			SecretGenerator:     true,
+			SecretReplicator:    true,
+			ConfigMapReplicator: true,
 		},
 	}
 }
@@ -285,6 +367,13 @@ func (c *Config) Validate() error {
 	if c.Rotation.MaintenanceWindows.Enabled {
 		if err := c.Rotation.MaintenanceWindows.Validate(); err != nil {
 			return fmt.Errorf("maintenance windows configuration error: %w", err)
+		}
+	}
+
+	// Validate global pull-based permissions
+	for i := range c.GlobalPullBasedPermissions {
+		if err := c.GlobalPullBasedPermissions[i].Validate(); err != nil {
+			return fmt.Errorf("globalPullBasedPermissions[%d]: %w", i, err)
 		}
 	}
 

@@ -10,6 +10,11 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "list", "watch", "update", "patch", "create", "delete"]
+  # ConfigMaps permissions are required for ConfigMap replication
+  # Note: 'create' and 'delete' are required for push-based replication
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "update", "patch", "create", "delete"]
   # Events permissions for recording events
   # Core API ("") is used by leader election, events.k8s.io is used by controller-runtime Eventf
   - apiGroups: [""]

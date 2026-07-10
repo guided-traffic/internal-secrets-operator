@@ -144,6 +144,11 @@ rules:
 - apiGroups: [""]
   resources: ["secrets"]
   verbs: ["get", "list", "watch", "update", "patch", "create", "delete"]
+# ConfigMaps permissions are required for ConfigMap replication
+# Note: 'create' and 'delete' are required for push-based replication
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch", "update", "patch", "create", "delete"]
 # Events permissions for recording events
 # Core API ("") is used by leader election
 - apiGroups: [""]
@@ -157,6 +162,7 @@ rules:
 
 **Notes:**
 - `create` and `delete` verbs for secrets are required for secret replication features.
+- `create` and `delete` verbs for configmaps are required for push-based ConfigMap replication.
 - Two Events API groups are required: Core API (`""`) for leader election events, and `events.k8s.io` for controller-runtime `Eventf()` calls (requires Kubernetes 1.19+).
 
 ### Defaults
@@ -191,6 +197,18 @@ rotation:
   maintenanceWindows:
     enabled: false
     windows: []
+
+features:
+  secretGenerator: true
+  secretReplicator: true
+  configMapReplicator: true
+
+globalPullBasedPermissions: []
+# - fromNamespace: "namespace-a"
+#   toNamespace: "namespace-b,namespace-c"
+#   validationPattern: "shoot-*"
+#   allowConfigMap: true
+#   allowSecret: false
 ```
 
 **Configuration options:**
@@ -213,10 +231,21 @@ rotation:
 | `rotation.maintenanceWindows.windows[].startTime` | Start time in 24h format (HH:MM) | - |
 | `rotation.maintenanceWindows.windows[].endTime` | End time in 24h format (HH:MM) | - |
 | `rotation.maintenanceWindows.windows[].timezone` | IANA timezone (e.g., `Europe/Berlin`) | - |
+| `features.secretGenerator` | Enable automatic secret value generation | `true` |
+| `features.secretReplicator` | Enable secret replication across namespaces | `true` |
+| `features.configMapReplicator` | Enable ConfigMap replication (pull and push) | `true` |
+| `globalPullBasedPermissions` | Global pull-based replication permissions | `[]` |
+| `globalPullBasedPermissions[].fromNamespace` | Comma-separated list of exact source namespace names | - |
+| `globalPullBasedPermissions[].toNamespace` | Comma-separated list of exact target namespace names | - |
+| `globalPullBasedPermissions[].validationPattern` | Glob pattern matched against the source object name (`*` = all) | - |
+| `globalPullBasedPermissions[].allowSecret` | Permission applies to Secrets | `false` |
+| `globalPullBasedPermissions[].allowConfigMap` | Permission applies to ConfigMaps | `false` |
 
 **Note:** At least one of `uppercase`, `lowercase`, `numbers`, or `specialChars` must be `true`.
 
 **Note:** When `maintenanceWindows.enabled` is `true`, `endTime` must be after `startTime`, otherwise the operator will fail to start.
+
+**Note:** Each `globalPullBasedPermissions` entry must have non-empty `fromNamespace`/`toNamespace` (exact names, no patterns), a non-empty valid glob `validationPattern`, and at least one of `allowSecret`/`allowConfigMap` set to `true` — otherwise the operator fails to start.
 
 ### Helm Chart Configuration
 
@@ -399,12 +428,43 @@ Pull-based replication requires **mutual consent** from both source and target S
 - `[0-9]` - matches any digit
 
 **Behavior:**
-- Replication only occurs when BOTH annotations match
+- Replication only occurs when BOTH annotations match (or a global pull-based permission applies, see below)
 - Data from source Secret is copied to target Secret
 - Existing data in target is overwritten (replicated data wins)
 - Target Secrets automatically sync when source changes
 - If source is deleted, target keeps last known data (snapshot)
 - Each target can only replicate from one source Secret
+
+### Global Pull-Based Permissions
+
+When the source object cannot be modified (no way to set the
+`replicatable-from-namespaces` annotation), pull-based replication can be
+allowed globally via the operator configuration:
+
+```yaml
+globalPullBasedPermissions:
+  - fromNamespace: "namespace-a"           # comma-separated exact namespace names (FROM)
+    toNamespace: "namespace-b,namespace-c" # comma-separated exact namespace names (TO)
+    validationPattern: "shoot-*"           # glob matched against the SOURCE object name
+    allowConfigMap: true                   # applies to ConfigMaps
+    allowSecret: false                     # applies to Secrets
+```
+
+**Behavior:**
+- Replaces only the source-side consent; the target still needs `replicate-from`
+- Additive to annotations: replication is allowed if annotation OR global permission matches
+- Namespaces are matched exactly (no patterns); the object name is matched via glob
+- Validated at startup: non-empty namespaces (valid DNS-1123 names), non-empty valid glob, at least one of `allowSecret`/`allowConfigMap`
+
+### ConfigMap Replication
+
+ConfigMaps support pull-based AND push-based replication with the same
+annotations and behavior as Secrets: `replicatable-from-namespaces`,
+`replicate-from`, `replicate-to`, global permissions with
+`allowConfigMap: true`, auto-sync on source changes, and finalizer-based
+cleanup of pushed ConfigMaps when the source is deleted. Both `data` and
+`binaryData` are replicated. Controlled via the `features.configMapReplicator`
+toggle (default `true`).
 
 ### Push-based Replication
 

@@ -125,6 +125,22 @@ func main() {
 		setupLog.Info("Secret Replicator controller disabled")
 	}
 
+	// Set up the ConfigMap Replicator controller (if enabled)
+	if cfg.Features.ConfigMapReplicator {
+		if err = (&controller.ConfigMapReplicatorReconciler{
+			Client:        mgr.GetClient(),
+			Scheme:        mgr.GetScheme(),
+			Config:        cfg,
+			EventRecorder: mgr.GetEventRecorder("configmap-replicator"),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "ConfigMapReplicator")
+			os.Exit(1)
+		}
+		setupLog.Info("ConfigMap Replicator controller enabled")
+	} else {
+		setupLog.Info("ConfigMap Replicator controller disabled")
+	}
+
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)

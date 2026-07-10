@@ -67,12 +67,30 @@ config:
         #   startTime: "02:00"
         #   endTime: "04:00"
         #   timezone: "UTC"
+  # Global pull-based replication permissions
+  # Grants pull-based replication WITHOUT the replicatable-from-namespaces
+  # annotation on the source object. Use this when you cannot modify the
+  # source object. The target object still needs the replicate-from annotation.
+  globalPullBasedPermissions: []
+    # Example configuration:
+    # - # Comma-separated list of exact namespace names to replicate FROM
+    #   fromNamespace: "namespace-a"
+    #   # Comma-separated list of exact namespace names to replicate TO
+    #   toNamespace: "namespace-b,namespace-c"
+    #   # Glob pattern (*, ?, [a-z]) matched against the SOURCE object name.
+    #   # Use "*" to allow all object names.
+    #   validationPattern: "shoot-*"
+    #   # Which object kinds this permission applies to (default: false)
+    #   allowConfigMap: true
+    #   allowSecret: false
   # Feature toggles (enable/disable operator features)
   features:
     # Enable automatic secret value generation
     secretGenerator: true
     # Enable secret replication across namespaces
     secretReplicator: true
+    # Enable ConfigMap replication (pull and push) across namespaces
+    configMapReplicator: true
 
 serviceAccount:
   # Specifies whether a service account should be created

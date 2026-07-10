@@ -135,14 +135,15 @@ func (r *SecretReplicatorReconciler) handlePullReplication(ctx context.Context, 
 		return ctrl.Result{}, nil
 	}
 
-	// Validate replication is allowed (mutual consent)
+	// Validate replication is allowed (mutual consent or global pull-based permission)
 	sourceAllowlist := sourceSecret.Annotations[replicator.AnnotationReplicatableFromNamespaces]
-	allowed, err := replicator.ValidateReplication(sourceNamespace, sourceAllowlist, targetSecret.Namespace)
-	if err != nil || !allowed {
+	allowed, denyReason := replicator.ValidatePullConsent(r.Config.GlobalPullBasedPermissions, replicator.KindSecret,
+		sourceNamespace, sourceName, sourceAllowlist, targetSecret.Namespace)
+	if !allowed {
 		r.EventRecorder.Eventf(targetSecret, nil, corev1.EventTypeWarning, EventReasonReplicationFailed, "Pull",
-			fmt.Sprintf("Replication not allowed: %v", err))
-		log.Info("Replication not allowed", "source", sourceRef, "error", err)
-		return ctrl.Result{}, nil // Don't requeue - mutual consent required
+			fmt.Sprintf("Replication not allowed: %s", denyReason))
+		log.Info("Replication not allowed", "source", sourceRef, "reason", denyReason)
+		return ctrl.Result{}, nil // Don't requeue - consent required
 	}
 
 	// Replicate data from source to target
@@ -212,7 +213,7 @@ func (r *SecretReplicatorReconciler) pushToNamespace(ctx context.Context, source
 			targetSecret = replicator.CreateReplicatedSecret(sourceSecret, targetNS)
 			if err := r.Create(ctx, targetSecret); err != nil {
 				// Determine if this is an expected error (namespace not found, permission denied, etc.)
-				reasonMsg := r.getHumanReadableErrorReason(err)
+				reasonMsg := humanReadableErrorReason(err)
 				r.EventRecorder.Eventf(sourceSecret, nil, corev1.EventTypeWarning, EventReasonPushFailed, "Push",
 					fmt.Sprintf("Could not replicate to namespace %s: %s", targetNS, reasonMsg))
 				log.V(1).Info("Could not replicate to namespace", "targetNamespace", targetNS, "reason", reasonMsg)
@@ -223,7 +224,7 @@ func (r *SecretReplicatorReconciler) pushToNamespace(ctx context.Context, source
 		}
 
 		// Unexpected error reading target
-		reasonMsg := r.getHumanReadableErrorReason(err)
+		reasonMsg := humanReadableErrorReason(err)
 		r.EventRecorder.Eventf(sourceSecret, nil, corev1.EventTypeWarning, EventReasonPushFailed, "Push",
 			fmt.Sprintf("Could not access namespace %s: %s", targetNS, reasonMsg))
 		log.V(1).Info("Could not access namespace", "targetNamespace", targetNS, "reason", reasonMsg)
@@ -241,7 +242,7 @@ func (r *SecretReplicatorReconciler) pushToNamespace(ctx context.Context, source
 	// We own it - update it
 	replicator.ReplicateSecret(sourceSecret, targetSecret)
 	if err := r.Update(ctx, targetSecret); err != nil {
-		reasonMsg := r.getHumanReadableErrorReason(err)
+		reasonMsg := humanReadableErrorReason(err)
 		r.EventRecorder.Eventf(sourceSecret, nil, corev1.EventTypeWarning, EventReasonPushFailed, "Push",
 			fmt.Sprintf("Could not update Secret in namespace %s: %s", targetNS, reasonMsg))
 		log.V(1).Info("Could not update Secret in namespace", "targetNamespace", targetNS, "reason", reasonMsg)
@@ -251,8 +252,8 @@ func (r *SecretReplicatorReconciler) pushToNamespace(ctx context.Context, source
 	log.Info("Updated replicated Secret", "targetNamespace", targetNS, "name", targetSecret.Name)
 }
 
-// getHumanReadableErrorReason converts API errors to human-readable reasons
-func (r *SecretReplicatorReconciler) getHumanReadableErrorReason(err error) string {
+// humanReadableErrorReason converts API errors to human-readable reasons
+func humanReadableErrorReason(err error) string {
 	if apierrors.IsNotFound(err) {
 		return "namespace not found"
 	}
@@ -360,9 +361,14 @@ func (r *SecretReplicatorReconciler) SetupWithManagerAndName(mgr ctrl.Manager, n
 		if !ok {
 			return false
 		}
-		// Only watch Secrets that could be sources (have replicatable-from-namespaces)
-		return secret.Annotations != nil &&
-			secret.Annotations[replicator.AnnotationReplicatableFromNamespaces] != ""
+		// Secrets with replicatable-from-namespaces can be sources
+		if secret.Annotations != nil &&
+			secret.Annotations[replicator.AnnotationReplicatableFromNamespaces] != "" {
+			return true
+		}
+		// Secrets covered by a global pull-based permission can be sources too
+		return replicator.MatchesAnyGlobalSource(r.Config.GlobalPullBasedPermissions, replicator.KindSecret,
+			secret.Namespace, secret.Name)
 	})
 
 	return ctrl.NewControllerManagedBy(mgr).

@@ -22,6 +22,8 @@ A Kubernetes operator that automatically generates random secret values. Use it 
 - 🔄 **Pull-based Replication** - Secrets can pull data from other namespaces with mutual consent
 - 📤 **Push-based Replication** - Automatically push secrets to multiple target namespaces
 - 🛡️ **Secure by Design** - Mutual consent model prevents unauthorized access
+- 🌐 **Global Pull-Based Permissions** - Operator-level permissions for sources you cannot annotate
+- 🗂️ **ConfigMap Replication** - Pull- and push-based replication for ConfigMaps
 - 🎯 **Pattern Matching** - Support for glob patterns in namespace allowlists (`*`, `?`, `[abc]`, `[a-z]`)
 - 🔁 **Auto-sync** - Target Secrets automatically update when source changes
 - 🧹 **Auto-cleanup** - Pushed Secrets are automatically deleted when source is removed
@@ -827,8 +829,100 @@ annotations:
 - ✅ Target automatically syncs when source changes
 - ✅ If source is deleted, target keeps last known data (snapshot)
 - ✅ Existing data in target is overwritten (replicated data wins)
-- ✅ Replication only occurs with mutual consent (both annotations match)
+- ✅ Replication only occurs with mutual consent (both annotations match) or via a global pull-based permission
 - ❌ Target cannot replicate from multiple sources (one source per target)
+
+### Global Pull-Based Permissions
+
+Sometimes the source object cannot be modified (e.g. it is managed by another
+controller or team), so the source-side `replicatable-from-namespaces`
+annotation cannot be set. For these cases, pull-based replication can be
+allowed globally in the operator configuration:
+
+```yaml
+# Helm values.yaml (rendered into /etc/secret-operator/config.yaml)
+config:
+  globalPullBasedPermissions:
+    - # Comma-separated list of exact namespace names to replicate FROM
+      fromNamespace: "namespace-a"
+      # Comma-separated list of exact namespace names to replicate TO
+      toNamespace: "namespace-b,namespace-c"
+      # Glob pattern (*, ?, [abc], [a-z]) matched against the SOURCE object name.
+      # Use "*" to allow all object names.
+      validationPattern: "shoot-*"
+      # Which object kinds this permission applies to (both default to false)
+      allowConfigMap: true
+      allowSecret: false
+```
+
+With this permission in place, any target Secret/ConfigMap in `namespace-b`
+or `namespace-c` can pull from objects in `namespace-a` whose name matches
+`shoot-*` — without any annotation on the source object:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shoot-ca-bundle
+  namespace: namespace-b
+  annotations:
+    iso.gtrfc.com/replicate-from: "namespace-a/shoot-ca-bundle"
+```
+
+#### Global Permission Behavior
+
+- ✅ The target still needs the `replicate-from` annotation (pull is always explicit)
+- ✅ Permissions are additive: replication is allowed if the source annotation **or** a global permission matches
+- ✅ `fromNamespace`/`toNamespace` accept only exact namespace names (comma-separated), no patterns
+- ✅ `validationPattern` restricts which source objects may be pulled (glob on the object name)
+- ✅ Targets automatically sync when a globally-permitted source changes
+- ⚠️ Invalid permissions (empty namespaces, invalid glob, no kind allowed) prevent operator startup
+
+### ConfigMap Replication
+
+ConfigMaps support **pull-based and push-based** replication with the same
+annotations and behavior as Secrets — including mutual consent, global
+pull-based permissions, auto-sync on source changes, and automatic cleanup of
+pushed ConfigMaps when the source is deleted:
+
+```yaml
+# Source ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: production
+  annotations:
+    iso.gtrfc.com/replicatable-from-namespaces: "staging"
+data:
+  settings.json: '{"env": "prod"}'
+---
+# Target ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: staging
+  annotations:
+    iso.gtrfc.com/replicate-from: "production/app-config"
+```
+
+Push-based replication uses the same `replicate-to` annotation as Secrets:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shared-config
+  namespace: production
+  annotations:
+    iso.gtrfc.com/replicate-to: "staging,development"
+data:
+  settings.json: '{"env": "prod"}'
+```
+
+Both `data` and `binaryData` are replicated. The feature can be disabled via
+`features.configMapReplicator: false`.
 
 ### Push-based Replication
 
@@ -871,6 +965,8 @@ This will automatically create `app-secret` in both `staging` and `development` 
 | `replicate-to` | Source (push) | Target namespaces to push this Secret to | `"staging,development"` |
 | `replicated-from` | Target (auto) | Indicates this Secret was replicated (set by operator) | `"production/app-secret"` |
 | `last-replicated-at` | Target (auto) | Timestamp of last replication (set by operator) | `"2025-12-05T10:00:00Z"` |
+
+> **Note:** All replication annotations work identically on ConfigMaps.
 
 ### Combining Generation and Replication
 
@@ -939,10 +1035,11 @@ See the [replication examples](config/samples/) for more:
 ### Security Considerations
 
 1. **Mutual Consent**: Pull replication requires both source and target to explicitly allow it
-2. **RBAC**: The operator needs `create` and `delete` permissions for push-based replication
-3. **Namespace Access**: Control operator access via RBAC (ClusterRoleBinding or manual RoleBindings)
-4. **Audit Trail**: All replicated Secrets have `replicated-from` annotation for tracking
-5. **Events**: The operator creates Warning Events when replication fails
+2. **Global Permissions**: `globalPullBasedPermissions` bypass the source-side consent — scope them narrowly (exact namespaces, restrictive `validationPattern`) since they are controlled by whoever installs the operator
+3. **RBAC**: The operator needs `create` and `delete` permissions for push-based replication
+4. **Namespace Access**: Control operator access via RBAC (ClusterRoleBinding or manual RoleBindings)
+5. **Audit Trail**: All replicated Secrets have `replicated-from` annotation for tracking
+6. **Events**: The operator creates Warning Events when replication fails
 
 ### Troubleshooting Replication
 
@@ -1095,6 +1192,19 @@ features:
 
   # Enable secret replication across namespaces
   secretReplicator: true
+
+  # Enable ConfigMap replication (pull and push) across namespaces
+  configMapReplicator: true
+
+# Global pull-based replication permissions
+# Allow pull-based replication without the source-side annotation
+# (for source objects you cannot modify)
+globalPullBasedPermissions: []
+  # - fromNamespace: "namespace-a"
+  #   toNamespace: "namespace-b,namespace-c"
+  #   validationPattern: "shoot-*"
+  #   allowConfigMap: true
+  #   allowSecret: false
 ```
 
 ### Configuration Reference
@@ -1112,6 +1222,13 @@ features:
 | `rotation.createEvents` | boolean | `false` | Create Normal Events when secrets are rotated. Useful for auditing |
 | `features.secretGenerator` | boolean | `true` | Enable automatic secret value generation feature |
 | `features.secretReplicator` | boolean | `true` | Enable secret replication across namespaces feature |
+| `features.configMapReplicator` | boolean | `true` | Enable ConfigMap replication (pull and push) feature |
+| `globalPullBasedPermissions` | list | `[]` | Global pull-based replication permissions (see [Global Pull-Based Permissions](#global-pull-based-permissions)) |
+| `globalPullBasedPermissions[].fromNamespace` | string | - | Comma-separated list of exact namespace names to replicate from |
+| `globalPullBasedPermissions[].toNamespace` | string | - | Comma-separated list of exact namespace names to replicate to |
+| `globalPullBasedPermissions[].validationPattern` | string | - | Glob pattern matched against the source object name (`*` allows all) |
+| `globalPullBasedPermissions[].allowSecret` | boolean | `false` | Permission applies to Secrets |
+| `globalPullBasedPermissions[].allowConfigMap` | boolean | `false` | Permission applies to ConfigMaps |
 
 ### Validation Rules
 
@@ -1121,6 +1238,9 @@ The operator validates the configuration at startup and will fail to start if:
 2. **Invalid length**: `defaults.length` must be a positive integer
 3. **No charset enabled**: At least one of `uppercase`, `lowercase`, `numbers`, or `specialChars` must be `true`
 4. **Empty special chars**: If `specialChars` is `true`, `allowedSpecialChars` must not be empty
+5. **Global permission namespaces**: Each `globalPullBasedPermissions` entry must have non-empty `fromNamespace` and `toNamespace` containing only exact, valid namespace names (no patterns)
+6. **Global permission pattern**: `validationPattern` must be a non-empty, valid glob pattern (use `"*"` to allow all object names)
+7. **Global permission kind**: At least one of `allowSecret` or `allowConfigMap` must be `true`
 
 ### Configuration Priority
 

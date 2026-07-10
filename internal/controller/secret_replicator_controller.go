@@ -135,14 +135,15 @@ func (r *SecretReplicatorReconciler) handlePullReplication(ctx context.Context, 
 		return ctrl.Result{}, nil
 	}
 
-	// Validate replication is allowed (mutual consent)
+	// Validate replication is allowed (mutual consent or global pull-based permission)
 	sourceAllowlist := sourceSecret.Annotations[replicator.AnnotationReplicatableFromNamespaces]
-	allowed, err := replicator.ValidateReplication(sourceNamespace, sourceAllowlist, targetSecret.Namespace)
-	if err != nil || !allowed {
+	allowed, denyReason := replicator.ValidatePullConsent(r.Config.GlobalPullBasedPermissions, replicator.KindSecret,
+		sourceNamespace, sourceName, sourceAllowlist, targetSecret.Namespace)
+	if !allowed {
 		r.EventRecorder.Eventf(targetSecret, nil, corev1.EventTypeWarning, EventReasonReplicationFailed, "Pull",
-			fmt.Sprintf("Replication not allowed: %v", err))
-		log.Info("Replication not allowed", "source", sourceRef, "error", err)
-		return ctrl.Result{}, nil // Don't requeue - mutual consent required
+			fmt.Sprintf("Replication not allowed: %s", denyReason))
+		log.Info("Replication not allowed", "source", sourceRef, "reason", denyReason)
+		return ctrl.Result{}, nil // Don't requeue - consent required
 	}
 
 	// Replicate data from source to target
@@ -360,9 +361,14 @@ func (r *SecretReplicatorReconciler) SetupWithManagerAndName(mgr ctrl.Manager, n
 		if !ok {
 			return false
 		}
-		// Only watch Secrets that could be sources (have replicatable-from-namespaces)
-		return secret.Annotations != nil &&
-			secret.Annotations[replicator.AnnotationReplicatableFromNamespaces] != ""
+		// Secrets with replicatable-from-namespaces can be sources
+		if secret.Annotations != nil &&
+			secret.Annotations[replicator.AnnotationReplicatableFromNamespaces] != "" {
+			return true
+		}
+		// Secrets covered by a global pull-based permission can be sources too
+		return replicator.MatchesAnyGlobalSource(r.Config.GlobalPullBasedPermissions, replicator.KindSecret,
+			secret.Namespace, secret.Name)
 	})
 
 	return ctrl.NewControllerManagedBy(mgr).

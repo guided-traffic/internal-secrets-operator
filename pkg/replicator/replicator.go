@@ -73,7 +73,7 @@ func ReplicateSecret(source, target *corev1.Secret) {
 // ValidateReplication checks if replication is allowed (mutual consent)
 func ValidateReplication(sourceNamespace string, sourceAllowlist string, targetNamespace string) (bool, error) {
 	if sourceAllowlist == "" {
-		return false, fmt.Errorf("source Secret does not have %s annotation", AnnotationReplicatableFromNamespaces)
+		return false, fmt.Errorf("source object does not have %s annotation", AnnotationReplicatableFromNamespaces)
 	}
 
 	// Split comma-separated list

@@ -110,6 +110,40 @@ config:
 |-----|------|---------|-------------|
 | `config.features.secretGenerator` | bool | `true` | Enable automatic secret value generation |
 | `config.features.secretReplicator` | bool | `true` | Enable secret replication across namespaces |
+| `config.features.configMapReplicator` | bool | `true` | Enable pull-based ConfigMap replication across namespaces |
+
+### Global Pull-Based Permissions
+
+Allow pull-based replication without the source-side
+`iso.gtrfc.com/replicatable-from-namespaces` annotation — for source objects
+that cannot be modified. The target object still needs the
+`iso.gtrfc.com/replicate-from` annotation.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `config.globalPullBasedPermissions` | list | `[]` | List of global pull-based replication permissions |
+| `config.globalPullBasedPermissions[].fromNamespace` | string | - | Comma-separated list of exact namespace names to replicate from |
+| `config.globalPullBasedPermissions[].toNamespace` | string | - | Comma-separated list of exact namespace names to replicate to |
+| `config.globalPullBasedPermissions[].validationPattern` | string | - | Glob pattern (`*`, `?`, `[a-z]`) matched against the source object name; `"*"` allows all |
+| `config.globalPullBasedPermissions[].allowSecret` | bool | `false` | Permission applies to Secrets |
+| `config.globalPullBasedPermissions[].allowConfigMap` | bool | `false` | Permission applies to ConfigMaps |
+
+**Example:**
+
+```yaml
+config:
+  globalPullBasedPermissions:
+    - fromNamespace: "namespace-a"
+      toNamespace: "namespace-b,namespace-c"
+      validationPattern: "shoot-*"
+      allowConfigMap: true
+      allowSecret: false
+```
+
+**Validation (operator fails to start otherwise):**
+- `fromNamespace`/`toNamespace` must contain at least one exact, valid namespace name (patterns are rejected)
+- `validationPattern` must be a non-empty, valid glob pattern
+- At least one of `allowSecret`/`allowConfigMap` must be `true`
 
 ### Service Account
 

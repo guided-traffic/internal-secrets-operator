@@ -144,10 +144,11 @@ rules:
 - apiGroups: [""]
   resources: ["secrets"]
   verbs: ["get", "list", "watch", "update", "patch", "create", "delete"]
-# ConfigMaps permissions are required for pull-based ConfigMap replication
+# ConfigMaps permissions are required for ConfigMap replication
+# Note: 'create' and 'delete' are required for push-based replication
 - apiGroups: [""]
   resources: ["configmaps"]
-  verbs: ["get", "list", "watch", "update", "patch"]
+  verbs: ["get", "list", "watch", "update", "patch", "create", "delete"]
 # Events permissions for recording events
 # Core API ("") is used by leader election
 - apiGroups: [""]
@@ -161,7 +162,7 @@ rules:
 
 **Notes:**
 - `create` and `delete` verbs for secrets are required for secret replication features.
-- ConfigMap replication is pull-only (updates existing targets), so no `create`/`delete` verbs are needed for configmaps.
+- `create` and `delete` verbs for configmaps are required for push-based ConfigMap replication.
 - Two Events API groups are required: Core API (`""`) for leader election events, and `events.k8s.io` for controller-runtime `Eventf()` calls (requires Kubernetes 1.19+).
 
 ### Defaults
@@ -232,7 +233,7 @@ globalPullBasedPermissions: []
 | `rotation.maintenanceWindows.windows[].timezone` | IANA timezone (e.g., `Europe/Berlin`) | - |
 | `features.secretGenerator` | Enable automatic secret value generation | `true` |
 | `features.secretReplicator` | Enable secret replication across namespaces | `true` |
-| `features.configMapReplicator` | Enable pull-based ConfigMap replication | `true` |
+| `features.configMapReplicator` | Enable ConfigMap replication (pull and push) | `true` |
 | `globalPullBasedPermissions` | Global pull-based replication permissions | `[]` |
 | `globalPullBasedPermissions[].fromNamespace` | Comma-separated list of exact source namespace names | - |
 | `globalPullBasedPermissions[].toNamespace` | Comma-separated list of exact target namespace names | - |
@@ -455,13 +456,15 @@ globalPullBasedPermissions:
 - Namespaces are matched exactly (no patterns); the object name is matched via glob
 - Validated at startup: non-empty namespaces (valid DNS-1123 names), non-empty valid glob, at least one of `allowSecret`/`allowConfigMap`
 
-### ConfigMap Replication (Pull-only)
+### ConfigMap Replication
 
-ConfigMaps support pull-based replication with the same annotations and consent
-model as Secrets (`replicatable-from-namespaces`, `replicate-from`, global
-permissions with `allowConfigMap: true`). Both `data` and `binaryData` are
-replicated. Push-based replication is NOT supported for ConfigMaps. Controlled
-via the `features.configMapReplicator` toggle (default `true`).
+ConfigMaps support pull-based AND push-based replication with the same
+annotations and behavior as Secrets: `replicatable-from-namespaces`,
+`replicate-from`, `replicate-to`, global permissions with
+`allowConfigMap: true`, auto-sync on source changes, and finalizer-based
+cleanup of pushed ConfigMaps when the source is deleted. Both `data` and
+`binaryData` are replicated. Controlled via the `features.configMapReplicator`
+toggle (default `true`).
 
 ### Push-based Replication
 

@@ -23,7 +23,7 @@ A Kubernetes operator that automatically generates random secret values. Use it 
 - 📤 **Push-based Replication** - Automatically push secrets to multiple target namespaces
 - 🛡️ **Secure by Design** - Mutual consent model prevents unauthorized access
 - 🌐 **Global Pull-Based Permissions** - Operator-level permissions for sources you cannot annotate
-- 🗂️ **ConfigMap Replication** - Pull-based replication for ConfigMaps
+- 🗂️ **ConfigMap Replication** - Pull- and push-based replication for ConfigMaps
 - 🎯 **Pattern Matching** - Support for glob patterns in namespace allowlists (`*`, `?`, `[abc]`, `[a-z]`)
 - 🔁 **Auto-sync** - Target Secrets automatically update when source changes
 - 🧹 **Auto-cleanup** - Pushed Secrets are automatically deleted when source is removed
@@ -880,9 +880,10 @@ metadata:
 
 ### ConfigMap Replication
 
-ConfigMaps support **pull-based** replication with the same annotations and
-consent model as Secrets (push-based replication is not supported for
-ConfigMaps):
+ConfigMaps support **pull-based and push-based** replication with the same
+annotations and behavior as Secrets — including mutual consent, global
+pull-based permissions, auto-sync on source changes, and automatic cleanup of
+pushed ConfigMaps when the source is deleted:
 
 ```yaml
 # Source ConfigMap
@@ -904,6 +905,20 @@ metadata:
   namespace: staging
   annotations:
     iso.gtrfc.com/replicate-from: "production/app-config"
+```
+
+Push-based replication uses the same `replicate-to` annotation as Secrets:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shared-config
+  namespace: production
+  annotations:
+    iso.gtrfc.com/replicate-to: "staging,development"
+data:
+  settings.json: '{"env": "prod"}'
 ```
 
 Both `data` and `binaryData` are replicated. The feature can be disabled via
@@ -951,7 +966,7 @@ This will automatically create `app-secret` in both `staging` and `development` 
 | `replicated-from` | Target (auto) | Indicates this Secret was replicated (set by operator) | `"production/app-secret"` |
 | `last-replicated-at` | Target (auto) | Timestamp of last replication (set by operator) | `"2025-12-05T10:00:00Z"` |
 
-> **Note:** The pull-related annotations (`replicatable-from-namespaces`, `replicate-from`, `replicated-from`, `last-replicated-at`) work identically on ConfigMaps. `replicate-to` (push) is Secrets-only.
+> **Note:** All replication annotations work identically on ConfigMaps.
 
 ### Combining Generation and Replication
 
@@ -1178,7 +1193,7 @@ features:
   # Enable secret replication across namespaces
   secretReplicator: true
 
-  # Enable pull-based ConfigMap replication across namespaces
+  # Enable ConfigMap replication (pull and push) across namespaces
   configMapReplicator: true
 
 # Global pull-based replication permissions
@@ -1207,7 +1222,7 @@ globalPullBasedPermissions: []
 | `rotation.createEvents` | boolean | `false` | Create Normal Events when secrets are rotated. Useful for auditing |
 | `features.secretGenerator` | boolean | `true` | Enable automatic secret value generation feature |
 | `features.secretReplicator` | boolean | `true` | Enable secret replication across namespaces feature |
-| `features.configMapReplicator` | boolean | `true` | Enable pull-based ConfigMap replication feature |
+| `features.configMapReplicator` | boolean | `true` | Enable ConfigMap replication (pull and push) feature |
 | `globalPullBasedPermissions` | list | `[]` | Global pull-based replication permissions (see [Global Pull-Based Permissions](#global-pull-based-permissions)) |
 | `globalPullBasedPermissions[].fromNamespace` | string | - | Comma-separated list of exact namespace names to replicate from |
 | `globalPullBasedPermissions[].toNamespace` | string | - | Comma-separated list of exact namespace names to replicate to |

@@ -37,11 +37,8 @@ import (
 	"github.com/guided-traffic/internal-secrets-operator/pkg/replicator"
 )
 
-// ConfigMapReplicatorReconciler reconciles ConfigMaps for pull-based replication.
-// Unlike the Secret replicator, it supports only pull-based replication:
-// a target ConfigMap with the replicate-from annotation pulls data from a
-// source ConfigMap, if allowed by the source-side allowlist annotation or a
-// global pull-based permission.
+// ConfigMapReplicatorReconciler reconciles ConfigMaps for replication
+// (both pull and push), mirroring the Secret replicator behavior.
 type ConfigMapReplicatorReconciler struct {
 	client.Client
 	Scheme        *runtime.Scheme
@@ -49,7 +46,7 @@ type ConfigMapReplicatorReconciler struct {
 	EventRecorder events.EventRecorder
 }
 
-// Reconcile handles ConfigMap pull-based replication
+// Reconcile handles ConfigMap replication (both pull and push)
 func (r *ConfigMapReplicatorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
@@ -57,20 +54,26 @@ func (r *ConfigMapReplicatorReconciler) Reconcile(ctx context.Context, req ctrl.
 	cm := &corev1.ConfigMap{}
 	if err := r.Get(ctx, req.NamespacedName, cm); err != nil {
 		if apierrors.IsNotFound(err) {
+			// ConfigMap deleted - handled by finalizer
 			return ctrl.Result{}, nil
 		}
 		log.Error(err, "failed to get ConfigMap")
 		return ctrl.Result{}, err
 	}
 
-	// Pull-based replication does not own the target, nothing to clean up on deletion
-	if replicator.IsConfigMapBeingDeleted(cm) {
-		return ctrl.Result{}, nil
+	// Handle deletion (for push-based replication cleanup)
+	if replicator.IsBeingDeleted(cm) {
+		return r.handleDeletion(ctx, cm)
 	}
 
 	// Handle pull-based replication
 	if cm.Annotations[replicator.AnnotationReplicateFrom] != "" {
 		return r.handlePullReplication(ctx, cm)
+	}
+
+	// Handle push-based replication
+	if cm.Annotations[replicator.AnnotationReplicateTo] != "" {
+		return r.handlePushReplication(ctx, cm)
 	}
 
 	return ctrl.Result{}, nil
@@ -105,7 +108,7 @@ func (r *ConfigMapReplicatorReconciler) handlePullReplication(ctx context.Contex
 	}
 
 	// Check if source ConfigMap was deleted
-	if replicator.IsConfigMapBeingDeleted(sourceCM) {
+	if replicator.IsBeingDeleted(sourceCM) {
 		r.EventRecorder.Eventf(targetCM, nil, corev1.EventTypeWarning, EventReasonSourceDeleted, "Pull",
 			fmt.Sprintf("Source ConfigMap %s is being deleted. Target will keep last known data.", sourceRef))
 		log.Info("Source ConfigMap being deleted - keeping snapshot", "source", sourceRef)
@@ -141,6 +144,145 @@ func (r *ConfigMapReplicatorReconciler) handlePullReplication(ctx context.Contex
 	return ctrl.Result{}, nil
 }
 
+// handlePushReplication implements push-based replication (source pushes to targets)
+func (r *ConfigMapReplicatorReconciler) handlePushReplication(ctx context.Context, sourceCM *corev1.ConfigMap) (ctrl.Result, error) {
+	log := log.FromContext(ctx)
+
+	// Parse target namespaces
+	targetNSList := sourceCM.Annotations[replicator.AnnotationReplicateTo]
+	targetNamespaces := replicator.ParseTargetNamespaces(targetNSList)
+
+	if len(targetNamespaces) == 0 {
+		log.Info("No target namespaces specified", "annotation", targetNSList)
+		return ctrl.Result{}, nil
+	}
+
+	// Add finalizer to source ConfigMap for cleanup
+	if !replicator.HasFinalizer(sourceCM) {
+		replicator.AddFinalizer(sourceCM)
+		if err := r.Update(ctx, sourceCM); err != nil {
+			log.Error(err, "failed to add finalizer to source ConfigMap")
+			return ctrl.Result{}, err
+		}
+		log.Info("Added finalizer to source ConfigMap", "namespace", sourceCM.Namespace, "name", sourceCM.Name)
+	}
+
+	sourceRef := fmt.Sprintf("%s/%s", sourceCM.Namespace, sourceCM.Name)
+
+	// Push to each target namespace
+	for _, targetNS := range targetNamespaces {
+		r.pushToNamespace(ctx, sourceCM, targetNS, sourceRef)
+		// Always continue with other namespaces even if one fails
+	}
+
+	return ctrl.Result{}, nil
+}
+
+// pushToNamespace pushes a ConfigMap to a target namespace
+func (r *ConfigMapReplicatorReconciler) pushToNamespace(ctx context.Context, sourceCM *corev1.ConfigMap, targetNS string, sourceRef string) {
+	log := log.FromContext(ctx)
+
+	// Check if target ConfigMap already exists
+	targetCM := &corev1.ConfigMap{}
+	targetKey := types.NamespacedName{Namespace: targetNS, Name: sourceCM.Name}
+	err := r.Get(ctx, targetKey, targetCM)
+
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// Target doesn't exist - create it
+			targetCM = replicator.CreateReplicatedConfigMap(sourceCM, targetNS)
+			if err := r.Create(ctx, targetCM); err != nil {
+				reasonMsg := humanReadableErrorReason(err)
+				r.EventRecorder.Eventf(sourceCM, nil, corev1.EventTypeWarning, EventReasonPushFailed, "Push",
+					fmt.Sprintf("Could not replicate to namespace %s: %s", targetNS, reasonMsg))
+				log.V(1).Info("Could not replicate to namespace", "targetNamespace", targetNS, "reason", reasonMsg)
+				return
+			}
+			log.Info("Created replicated ConfigMap", "targetNamespace", targetNS, "name", targetCM.Name)
+			return
+		}
+
+		// Unexpected error reading target
+		reasonMsg := humanReadableErrorReason(err)
+		r.EventRecorder.Eventf(sourceCM, nil, corev1.EventTypeWarning, EventReasonPushFailed, "Push",
+			fmt.Sprintf("Could not access namespace %s: %s", targetNS, reasonMsg))
+		log.V(1).Info("Could not access namespace", "targetNamespace", targetNS, "reason", reasonMsg)
+		return
+	}
+
+	// Target exists - check if we own it
+	if !replicator.IsOwnedByUs(targetCM, sourceRef) {
+		r.EventRecorder.Eventf(sourceCM, nil, corev1.EventTypeWarning, EventReasonPushFailed, "Push",
+			fmt.Sprintf("ConfigMap already exists in namespace %s and is not managed by this replication", targetNS))
+		log.V(1).Info("Target ConfigMap exists but is not owned by us", "targetNamespace", targetNS, "name", sourceCM.Name)
+		return
+	}
+
+	// We own it - update it
+	replicator.ReplicateConfigMap(sourceCM, targetCM)
+	if err := r.Update(ctx, targetCM); err != nil {
+		reasonMsg := humanReadableErrorReason(err)
+		r.EventRecorder.Eventf(sourceCM, nil, corev1.EventTypeWarning, EventReasonPushFailed, "Push",
+			fmt.Sprintf("Could not update ConfigMap in namespace %s: %s", targetNS, reasonMsg))
+		log.V(1).Info("Could not update ConfigMap in namespace", "targetNamespace", targetNS, "reason", reasonMsg)
+		return
+	}
+
+	log.Info("Updated replicated ConfigMap", "targetNamespace", targetNS, "name", targetCM.Name)
+}
+
+// handleDeletion handles cleanup when a source ConfigMap with replicate-to is deleted
+func (r *ConfigMapReplicatorReconciler) handleDeletion(ctx context.Context, sourceCM *corev1.ConfigMap) (ctrl.Result, error) {
+	log := log.FromContext(ctx)
+
+	if !replicator.HasFinalizer(sourceCM) {
+		// No finalizer - nothing to clean up
+		return ctrl.Result{}, nil
+	}
+
+	// Only handle deletion for ConfigMaps with replicate-to annotation
+	if sourceCM.Annotations[replicator.AnnotationReplicateTo] == "" {
+		// Remove finalizer and let it be deleted
+		replicator.RemoveFinalizer(sourceCM)
+		if err := r.Update(ctx, sourceCM); err != nil {
+			log.Error(err, "failed to remove finalizer")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
+	sourceRef := fmt.Sprintf("%s/%s", sourceCM.Namespace, sourceCM.Name)
+
+	// Find all ConfigMaps that were replicated from this source
+	cmList := &corev1.ConfigMapList{}
+	if err := r.List(ctx, cmList); err != nil {
+		log.Error(err, "failed to list ConfigMaps for cleanup")
+		return ctrl.Result{}, err
+	}
+
+	// Delete all pushed ConfigMaps
+	for i := range cmList.Items {
+		cm := &cmList.Items[i]
+		if replicator.GetReplicatedFromAnnotation(cm) == sourceRef {
+			if err := r.Delete(ctx, cm); err != nil && !apierrors.IsNotFound(err) {
+				log.Error(err, "failed to delete replicated ConfigMap", "namespace", cm.Namespace, "name", cm.Name)
+				return ctrl.Result{}, err
+			}
+			log.Info("Deleted replicated ConfigMap", "namespace", cm.Namespace, "name", cm.Name)
+		}
+	}
+
+	// Remove finalizer from source ConfigMap
+	replicator.RemoveFinalizer(sourceCM)
+	if err := r.Update(ctx, sourceCM); err != nil {
+		log.Error(err, "failed to remove finalizer after cleanup")
+		return ctrl.Result{}, err
+	}
+
+	log.Info("Cleaned up all replicated ConfigMaps", "source", sourceRef)
+	return ctrl.Result{}, nil
+}
+
 // SetupWithManager sets up the controller with the Manager
 func (r *ConfigMapReplicatorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return r.SetupWithManagerAndName(mgr, "configmap-replicator")
@@ -149,13 +291,18 @@ func (r *ConfigMapReplicatorReconciler) SetupWithManager(mgr ctrl.Manager) error
 // SetupWithManagerAndName sets up the controller with the Manager using a custom name.
 // This is useful for testing where multiple controllers may run in the same process.
 func (r *ConfigMapReplicatorReconciler) SetupWithManagerAndName(mgr ctrl.Manager, name string) error {
-	// Predicate for main reconciliation: only handle ConfigMaps with the pull annotation
+	// Predicate for main reconciliation: only handle ConfigMaps with pull or push annotations
 	mainPredicate := predicate.NewPredicateFuncs(func(obj client.Object) bool {
 		cm, ok := obj.(*corev1.ConfigMap)
 		if !ok {
 			return false
 		}
-		return cm.Annotations != nil && cm.Annotations[replicator.AnnotationReplicateFrom] != ""
+		if cm.Annotations == nil {
+			return false
+		}
+		hasReplicateFrom := cm.Annotations[replicator.AnnotationReplicateFrom] != ""
+		hasReplicateTo := cm.Annotations[replicator.AnnotationReplicateTo] != ""
+		return hasReplicateFrom || hasReplicateTo
 	})
 
 	// Predicate for source ConfigMaps: trigger target reconciliation when source changes
@@ -176,7 +323,7 @@ func (r *ConfigMapReplicatorReconciler) SetupWithManagerAndName(mgr ctrl.Manager
 
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(name).
-		// Watch ConfigMaps with the replicate-from annotation
+		// Watch ConfigMaps with replicate-from or replicate-to annotations
 		For(&corev1.ConfigMap{}, builder.WithPredicates(mainPredicate)).
 		// Watch source ConfigMaps to trigger reconciliation of target ConfigMaps when the source changes
 		Watches(
@@ -184,7 +331,71 @@ func (r *ConfigMapReplicatorReconciler) SetupWithManagerAndName(mgr ctrl.Manager
 			handler.EnqueueRequestsFromMapFunc(r.findTargetsForSource),
 			builder.WithPredicates(sourcePredicate),
 		).
+		// Watch all ConfigMaps to detect when a conflicting target is deleted
+		// This enables push-based replication to retry when the blocking ConfigMap is removed
+		Watches(
+			&corev1.ConfigMap{},
+			handler.EnqueueRequestsFromMapFunc(r.findPushSourcesForTarget),
+		).
 		Complete(r)
+}
+
+// findPushSourcesForTarget finds all source ConfigMaps that want to push to a namespace
+// where a ConfigMap was deleted. This enables retry when a conflicting ConfigMap is removed.
+func (r *ConfigMapReplicatorReconciler) findPushSourcesForTarget(ctx context.Context, obj client.Object) []reconcile.Request {
+	cm, ok := obj.(*corev1.ConfigMap)
+	if !ok {
+		return nil
+	}
+
+	log := log.FromContext(ctx)
+
+	// Find all ConfigMaps with replicate-to annotation that includes this namespace
+	cmList := &corev1.ConfigMapList{}
+	if err := r.List(ctx, cmList); err != nil {
+		log.Error(err, "failed to list ConfigMaps for push source mapping")
+		return nil
+	}
+
+	var requests []reconcile.Request
+	for i := range cmList.Items {
+		source := &cmList.Items[i]
+		if source.Annotations == nil {
+			continue
+		}
+
+		// Check if this source pushes to the namespace where the ConfigMap changed
+		replicateTo := source.Annotations[replicator.AnnotationReplicateTo]
+		if replicateTo == "" {
+			continue
+		}
+
+		// Check if the deleted/changed ConfigMap has the same name and is in a target namespace
+		if source.Name != cm.Name {
+			continue
+		}
+
+		targetNamespaces := replicator.ParseTargetNamespaces(replicateTo)
+		for _, targetNS := range targetNamespaces {
+			if targetNS == cm.Namespace {
+				// This source wants to push to the namespace where the ConfigMap changed
+				requests = append(requests, reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Namespace: source.Namespace,
+						Name:      source.Name,
+					},
+				})
+				log.V(1).Info("Found push source for target change", "source", fmt.Sprintf("%s/%s", source.Namespace, source.Name), "targetNamespace", cm.Namespace)
+				break
+			}
+		}
+	}
+
+	if len(requests) > 0 {
+		log.Info("Triggering reconciliation of push sources", "changedConfigMap", fmt.Sprintf("%s/%s", cm.Namespace, cm.Name), "sourceCount", len(requests))
+	}
+
+	return requests
 }
 
 // findTargetsForSource finds all target ConfigMaps that replicate from a given source ConfigMap.

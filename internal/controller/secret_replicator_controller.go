@@ -213,7 +213,7 @@ func (r *SecretReplicatorReconciler) pushToNamespace(ctx context.Context, source
 			targetSecret = replicator.CreateReplicatedSecret(sourceSecret, targetNS)
 			if err := r.Create(ctx, targetSecret); err != nil {
 				// Determine if this is an expected error (namespace not found, permission denied, etc.)
-				reasonMsg := r.getHumanReadableErrorReason(err)
+				reasonMsg := humanReadableErrorReason(err)
 				r.EventRecorder.Eventf(sourceSecret, nil, corev1.EventTypeWarning, EventReasonPushFailed, "Push",
 					fmt.Sprintf("Could not replicate to namespace %s: %s", targetNS, reasonMsg))
 				log.V(1).Info("Could not replicate to namespace", "targetNamespace", targetNS, "reason", reasonMsg)
@@ -224,7 +224,7 @@ func (r *SecretReplicatorReconciler) pushToNamespace(ctx context.Context, source
 		}
 
 		// Unexpected error reading target
-		reasonMsg := r.getHumanReadableErrorReason(err)
+		reasonMsg := humanReadableErrorReason(err)
 		r.EventRecorder.Eventf(sourceSecret, nil, corev1.EventTypeWarning, EventReasonPushFailed, "Push",
 			fmt.Sprintf("Could not access namespace %s: %s", targetNS, reasonMsg))
 		log.V(1).Info("Could not access namespace", "targetNamespace", targetNS, "reason", reasonMsg)
@@ -242,7 +242,7 @@ func (r *SecretReplicatorReconciler) pushToNamespace(ctx context.Context, source
 	// We own it - update it
 	replicator.ReplicateSecret(sourceSecret, targetSecret)
 	if err := r.Update(ctx, targetSecret); err != nil {
-		reasonMsg := r.getHumanReadableErrorReason(err)
+		reasonMsg := humanReadableErrorReason(err)
 		r.EventRecorder.Eventf(sourceSecret, nil, corev1.EventTypeWarning, EventReasonPushFailed, "Push",
 			fmt.Sprintf("Could not update Secret in namespace %s: %s", targetNS, reasonMsg))
 		log.V(1).Info("Could not update Secret in namespace", "targetNamespace", targetNS, "reason", reasonMsg)
@@ -252,8 +252,8 @@ func (r *SecretReplicatorReconciler) pushToNamespace(ctx context.Context, source
 	log.Info("Updated replicated Secret", "targetNamespace", targetNS, "name", targetSecret.Name)
 }
 
-// getHumanReadableErrorReason converts API errors to human-readable reasons
-func (r *SecretReplicatorReconciler) getHumanReadableErrorReason(err error) string {
+// humanReadableErrorReason converts API errors to human-readable reasons
+func humanReadableErrorReason(err error) string {
 	if apierrors.IsNotFound(err) {
 		return "namespace not found"
 	}

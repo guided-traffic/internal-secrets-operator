@@ -599,6 +599,75 @@ func TestConfigMapGlobalPullPermission(t *testing.T) {
 	t.Log("Global pull-based permission for ConfigMaps works, including binaryData")
 }
 
+// TestConfigMapPushReplication verifies push-based ConfigMap replication
+// including cleanup of pushed ConfigMaps when the source is deleted.
+func TestConfigMapPushReplication(t *testing.T) {
+	ctx := context.Background()
+	ensureReplicationNamespaces(ctx, t)
+
+	const name = "e2e-cm-push"
+	defer deleteConfigMapIgnoreNotFound(t, replSourceNamespace, name)
+	defer deleteConfigMapIgnoreNotFound(t, replTargetNamespace, name)
+
+	source := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: replSourceNamespace,
+			Annotations: map[string]string{
+				AnnotationReplicateTo: replTargetNamespace,
+			},
+		},
+		Data:       map[string]string{"setting": "pushed-value"},
+		BinaryData: map[string][]byte{"blob": {0x0B, 0x0E}},
+	}
+	if _, err := clientset.CoreV1().ConfigMaps(replSourceNamespace).Create(ctx, source, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("Failed to create source configmap: %v", err)
+	}
+
+	// Pushed ConfigMap must appear in the target namespace
+	pushed, err := waitForConfigMapCondition(ctx, replTargetNamespace, name, func(cm *corev1.ConfigMap) bool {
+		return cm.Data["setting"] == "pushed-value"
+	})
+	if err != nil {
+		t.Fatalf("Timeout waiting for pushed configmap: %v", err)
+	}
+	if pushed.Annotations[AnnotationReplicatedFrom] != replSourceNamespace+"/"+name {
+		t.Errorf("replicated-from = %q, want %q", pushed.Annotations[AnnotationReplicatedFrom], replSourceNamespace+"/"+name)
+	}
+	if string(pushed.BinaryData["blob"]) != string([]byte{0x0B, 0x0E}) {
+		t.Errorf("binaryData not pushed, got: %v", pushed.BinaryData)
+	}
+
+	// Source change must sync to the pushed target
+	latest, err := clientset.CoreV1().ConfigMaps(replSourceNamespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Failed to get source configmap: %v", err)
+	}
+	latest.Data["setting"] = "pushed-value-2"
+	if _, err := clientset.CoreV1().ConfigMaps(replSourceNamespace).Update(ctx, latest, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("Failed to update source configmap: %v", err)
+	}
+	if _, err := waitForConfigMapCondition(ctx, replTargetNamespace, name, func(cm *corev1.ConfigMap) bool {
+		return cm.Data["setting"] == "pushed-value-2"
+	}); err != nil {
+		t.Fatalf("Timeout waiting for pushed configmap sync: %v", err)
+	}
+
+	// Deleting the source must clean up the pushed ConfigMap (finalizer logic)
+	if err := clientset.CoreV1().ConfigMaps(replSourceNamespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+		t.Fatalf("Failed to delete source configmap: %v", err)
+	}
+	err = wait.PollUntilContextTimeout(ctx, pollInterval, pollTimeout, true, func(ctx context.Context) (bool, error) {
+		_, err := clientset.CoreV1().ConfigMaps(replTargetNamespace).Get(ctx, name, metav1.GetOptions{})
+		return errors.IsNotFound(err), nil
+	})
+	if err != nil {
+		t.Fatalf("Timeout waiting for pushed configmap cleanup after source deletion: %v", err)
+	}
+
+	t.Log("ConfigMap push replication works, including sync and cleanup on source deletion")
+}
+
 // TestConfigMapPullReplicationDenied verifies that a ConfigMap without
 // consent and with a name not matching the global permission is not
 // replicated and a Warning event is created.

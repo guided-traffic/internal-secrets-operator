@@ -530,6 +530,403 @@ func TestConfigMapReplicatorReconciler_UpdateError(t *testing.T) {
 	}
 }
 
+func TestConfigMapReplicatorReconciler_PushReplication(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	tests := []struct {
+		name           string
+		sourceCM       *corev1.ConfigMap
+		existingTarget *corev1.ConfigMap
+		targetNS       string
+		expectCreated  bool
+		expectUpdated  bool
+		expectSkipped  bool
+	}{
+		{
+			name: "push creates new configmap",
+			sourceCM: &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "app-config",
+					Namespace: "production",
+					Annotations: map[string]string{
+						replicator.AnnotationReplicateTo: "staging",
+					},
+				},
+				Data:       map[string]string{"setting": "value"},
+				BinaryData: map[string][]byte{"blob": {0xBE, 0xEF}},
+			},
+			targetNS:      "staging",
+			expectCreated: true,
+		},
+		{
+			name: "push updates owned configmap",
+			sourceCM: &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "app-config",
+					Namespace: "production",
+					Annotations: map[string]string{
+						replicator.AnnotationReplicateTo: "staging",
+					},
+				},
+				Data: map[string]string{"setting": "new-value"},
+			},
+			existingTarget: &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "app-config",
+					Namespace: "staging",
+					Annotations: map[string]string{
+						replicator.AnnotationReplicatedFrom: "production/app-config",
+					},
+				},
+				Data: map[string]string{"setting": "old-value"},
+			},
+			targetNS:      "staging",
+			expectUpdated: true,
+		},
+		{
+			name: "push skips unowned configmap",
+			sourceCM: &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "app-config",
+					Namespace: "production",
+					Annotations: map[string]string{
+						replicator.AnnotationReplicateTo: "staging",
+					},
+				},
+				Data: map[string]string{"setting": "value"},
+			},
+			existingTarget: &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "app-config",
+					Namespace: "staging",
+					// No replicated-from annotation - not owned by us
+				},
+				Data: map[string]string{"setting": "existing"},
+			},
+			targetNS:      "staging",
+			expectSkipped: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			objs := []client.Object{tt.sourceCM}
+			if tt.existingTarget != nil {
+				objs = append(objs, tt.existingTarget)
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(objs...).
+				Build()
+
+			recorder := NewTestEventRecorder(10)
+			reconciler := newConfigMapReconciler(fakeClient, scheme, config.NewDefaultConfig(), recorder)
+
+			req := ctrl.Request{
+				NamespacedName: types.NamespacedName{
+					Namespace: tt.sourceCM.Namespace,
+					Name:      tt.sourceCM.Name,
+				},
+			}
+
+			if _, err := reconciler.Reconcile(context.Background(), req); err != nil {
+				t.Fatalf("Reconcile() error = %v", err)
+			}
+
+			// Source must have the cleanup finalizer
+			updatedSource := &corev1.ConfigMap{}
+			if err := fakeClient.Get(context.Background(), client.ObjectKeyFromObject(tt.sourceCM), updatedSource); err != nil {
+				t.Fatalf("Failed to get source configmap: %v", err)
+			}
+			if !replicator.HasFinalizer(updatedSource) {
+				t.Error("Expected finalizer on source ConfigMap for cleanup")
+			}
+
+			targetCM := &corev1.ConfigMap{}
+			err := fakeClient.Get(context.Background(), types.NamespacedName{
+				Namespace: tt.targetNS,
+				Name:      tt.sourceCM.Name,
+			}, targetCM)
+
+			if tt.expectCreated {
+				if err != nil {
+					t.Fatalf("Expected configmap to be created, got error: %v", err)
+				}
+				if targetCM.Data["setting"] != tt.sourceCM.Data["setting"] {
+					t.Errorf("Created configmap data mismatch: %v", targetCM.Data)
+				}
+				if string(targetCM.BinaryData["blob"]) != string(tt.sourceCM.BinaryData["blob"]) {
+					t.Errorf("Created configmap binaryData mismatch: %v", targetCM.BinaryData)
+				}
+				if targetCM.Annotations[replicator.AnnotationReplicatedFrom] != "production/app-config" {
+					t.Errorf("replicated-from = %q", targetCM.Annotations[replicator.AnnotationReplicatedFrom])
+				}
+			}
+
+			if tt.expectUpdated {
+				if err != nil {
+					t.Fatalf("Expected configmap to be updated, got error: %v", err)
+				}
+				if targetCM.Data["setting"] != "new-value" {
+					t.Errorf("ConfigMap was not updated, got %v", targetCM.Data)
+				}
+			}
+
+			if tt.expectSkipped {
+				if err != nil {
+					t.Fatalf("Got error: %v", err)
+				}
+				if targetCM.Data["setting"] != "existing" {
+					t.Error("Unowned configmap was modified")
+				}
+				select {
+				case event := <-recorder.Events:
+					if !strings.Contains(event, "PushFailed") {
+						t.Errorf("Expected PushFailed event, got: %s", event)
+					}
+				default:
+					t.Error("Expected a warning event for skipped unowned configmap")
+				}
+			}
+		})
+	}
+}
+
+func TestConfigMapReplicatorReconciler_PushToMultipleNamespaces(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	sourceCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "shared-config",
+			Namespace: "production",
+			Annotations: map[string]string{
+				replicator.AnnotationReplicateTo: "staging,development,qa",
+			},
+		},
+		Data: map[string]string{"setting": "shared"},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(sourceCM).Build()
+	recorder := NewTestEventRecorder(10)
+	reconciler := newConfigMapReconciler(fakeClient, scheme, config.NewDefaultConfig(), recorder)
+
+	req := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(sourceCM)}
+	if _, err := reconciler.Reconcile(context.Background(), req); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	for _, ns := range []string{"staging", "development", "qa"} {
+		targetCM := &corev1.ConfigMap{}
+		if err := fakeClient.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: "shared-config"}, targetCM); err != nil {
+			t.Errorf("Expected configmap in %s, got error: %v", ns, err)
+			continue
+		}
+		if targetCM.Data["setting"] != "shared" {
+			t.Errorf("ConfigMap in %s has wrong data: %v", ns, targetCM.Data)
+		}
+		if targetCM.Annotations[replicator.AnnotationReplicatedFrom] != "production/shared-config" {
+			t.Errorf("ConfigMap in %s has wrong replicated-from annotation", ns)
+		}
+	}
+}
+
+func TestConfigMapReplicatorReconciler_HandleDeletion(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	now := metav1.Now()
+
+	tests := []struct {
+		name                    string
+		sourceCM                *corev1.ConfigMap
+		replicatedCMs           []*corev1.ConfigMap
+		expectReplicatedDeleted bool
+	}{
+		{
+			name: "deletion with replicate-to cleans up pushed configmaps",
+			sourceCM: &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "push-config",
+					Namespace:         "production",
+					DeletionTimestamp: &now,
+					Finalizers:        []string{replicator.FinalizerReplicateToCleanup},
+					Annotations: map[string]string{
+						replicator.AnnotationReplicateTo: "staging,development",
+					},
+				},
+				Data: map[string]string{"key": "value"},
+			},
+			replicatedCMs: []*corev1.ConfigMap{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "push-config",
+						Namespace: "staging",
+						Annotations: map[string]string{
+							replicator.AnnotationReplicatedFrom: "production/push-config",
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "push-config",
+						Namespace: "development",
+						Annotations: map[string]string{
+							replicator.AnnotationReplicatedFrom: "production/push-config",
+						},
+					},
+				},
+			},
+			expectReplicatedDeleted: true,
+		},
+		{
+			name: "deletion with finalizer but no replicate-to removes finalizer only",
+			sourceCM: &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "finalizer-no-replicate-to",
+					Namespace:         "production",
+					DeletionTimestamp: &now,
+					Finalizers:        []string{replicator.FinalizerReplicateToCleanup},
+					// No replicate-to annotation
+				},
+			},
+			expectReplicatedDeleted: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			objs := []client.Object{tt.sourceCM}
+			for _, cm := range tt.replicatedCMs {
+				objs = append(objs, cm)
+			}
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+			recorder := NewTestEventRecorder(10)
+			reconciler := newConfigMapReconciler(fakeClient, scheme, config.NewDefaultConfig(), recorder)
+
+			req := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(tt.sourceCM)}
+			if _, err := reconciler.Reconcile(context.Background(), req); err != nil {
+				t.Fatalf("Reconcile() error = %v", err)
+			}
+
+			if tt.expectReplicatedDeleted {
+				for _, cm := range tt.replicatedCMs {
+					check := &corev1.ConfigMap{}
+					if err := fakeClient.Get(context.Background(), client.ObjectKeyFromObject(cm), check); err == nil {
+						t.Errorf("Expected replicated configmap %s/%s to be deleted", cm.Namespace, cm.Name)
+					}
+				}
+			}
+
+			// Finalizer must be removed (object may already be gone after removal)
+			updatedSource := &corev1.ConfigMap{}
+			if err := fakeClient.Get(context.Background(), client.ObjectKeyFromObject(tt.sourceCM), updatedSource); err == nil {
+				if replicator.HasFinalizer(updatedSource) {
+					t.Error("Expected finalizer to be removed from source configmap")
+				}
+			}
+		})
+	}
+}
+
+func TestConfigMapReplicatorReconciler_PushCreateError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	sourceCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "push-create-error",
+			Namespace: "production",
+			Annotations: map[string]string{
+				replicator.AnnotationReplicateTo: "staging",
+			},
+		},
+		Data: map[string]string{"key": "value"},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(sourceCM).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				if cm, ok := obj.(*corev1.ConfigMap); ok && cm.Namespace == "staging" {
+					return fmt.Errorf("simulated create error")
+				}
+				return c.Create(ctx, obj, opts...)
+			},
+		}).
+		Build()
+
+	recorder := NewTestEventRecorder(10)
+	reconciler := newConfigMapReconciler(fakeClient, scheme, config.NewDefaultConfig(), recorder)
+
+	req := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(sourceCM)}
+	// Errors while pushing are logged/evented but not returned (continue with other namespaces)
+	if _, err := reconciler.Reconcile(context.Background(), req); err != nil {
+		t.Fatalf("Reconcile() error = %v, expected nil", err)
+	}
+
+	select {
+	case event := <-recorder.Events:
+		if !strings.Contains(event, "Warning") || !strings.Contains(event, "PushFailed") {
+			t.Errorf("Expected PushFailed warning event, got: %s", event)
+		}
+	default:
+		t.Error("Expected a warning event for failed create")
+	}
+}
+
+func TestConfigMapReplicatorReconciler_FindPushSourcesForTarget(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	pushSource := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "app-config",
+			Namespace: "production",
+			Annotations: map[string]string{
+				replicator.AnnotationReplicateTo: "staging,development",
+			},
+		},
+	}
+
+	otherSource := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "other-config",
+			Namespace: "production",
+			Annotations: map[string]string{
+				replicator.AnnotationReplicateTo: "staging",
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pushSource, otherSource).Build()
+	reconciler := newConfigMapReconciler(fakeClient, scheme, config.NewDefaultConfig(), NewTestEventRecorder(10))
+
+	// A ConfigMap named app-config changed in staging - the push source must be requeued
+	changed := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-config", Namespace: "staging"},
+	}
+	requests := reconciler.findPushSourcesForTarget(context.Background(), changed)
+	if len(requests) != 1 {
+		t.Fatalf("Expected 1 reconcile request, got %d", len(requests))
+	}
+	if requests[0].Namespace != "production" || requests[0].Name != "app-config" {
+		t.Errorf("Unexpected request: %+v", requests[0])
+	}
+
+	// A ConfigMap in a namespace nobody pushes to must not trigger anything
+	unrelated := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-config", Namespace: "qa"},
+	}
+	if reqs := reconciler.findPushSourcesForTarget(context.Background(), unrelated); len(reqs) != 0 {
+		t.Errorf("Expected 0 requests, got %d", len(reqs))
+	}
+}
+
 func TestConfigMapReplicatorReconciler_FindTargetsForSource(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)

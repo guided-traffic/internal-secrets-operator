@@ -89,7 +89,7 @@ config:
     secretGenerator: true
     # Enable secret replication across namespaces
     secretReplicator: true
-    # Enable pull-based ConfigMap replication across namespaces
+    # Enable ConfigMap replication (pull and push) across namespaces
     configMapReplicator: true
 
 serviceAccount:

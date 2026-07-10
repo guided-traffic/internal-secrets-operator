@@ -110,7 +110,7 @@ config:
 |-----|------|---------|-------------|
 | `config.features.secretGenerator` | bool | `true` | Enable automatic secret value generation |
 | `config.features.secretReplicator` | bool | `true` | Enable secret replication across namespaces |
-| `config.features.configMapReplicator` | bool | `true` | Enable pull-based ConfigMap replication across namespaces |
+| `config.features.configMapReplicator` | bool | `true` | Enable ConfigMap replication (pull and push) across namespaces |
 
 ### Global Pull-Based Permissions
 

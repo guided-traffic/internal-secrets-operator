@@ -133,17 +133,98 @@ func TestReplicateConfigMap(t *testing.T) {
 	}
 }
 
-func TestIsConfigMapBeingDeleted(t *testing.T) {
+func TestConfigMapBeingDeleted(t *testing.T) {
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: "cm", Namespace: "default"},
 	}
-	if IsConfigMapBeingDeleted(cm) {
+	if IsBeingDeleted(cm) {
 		t.Error("ConfigMap without DeletionTimestamp should not be considered deleted")
 	}
 
 	now := metav1.Now()
 	cm.DeletionTimestamp = &now
-	if !IsConfigMapBeingDeleted(cm) {
+	if !IsBeingDeleted(cm) {
 		t.Error("ConfigMap with DeletionTimestamp should be considered deleted")
+	}
+}
+
+func TestConfigMapFinalizers(t *testing.T) {
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "cm", Namespace: "default"},
+	}
+
+	if HasFinalizer(cm) {
+		t.Error("new ConfigMap should not have the finalizer")
+	}
+
+	AddFinalizer(cm)
+	if !HasFinalizer(cm) {
+		t.Error("finalizer should be present after AddFinalizer")
+	}
+
+	// Adding twice must not duplicate
+	AddFinalizer(cm)
+	if len(cm.Finalizers) != 1 {
+		t.Errorf("expected 1 finalizer, got %d", len(cm.Finalizers))
+	}
+
+	// Other finalizers must survive removal
+	cm.Finalizers = append(cm.Finalizers, "other-finalizer")
+	RemoveFinalizer(cm)
+	if HasFinalizer(cm) {
+		t.Error("finalizer should be gone after RemoveFinalizer")
+	}
+	if len(cm.Finalizers) != 1 || cm.Finalizers[0] != "other-finalizer" {
+		t.Errorf("other finalizers should be preserved, got %v", cm.Finalizers)
+	}
+}
+
+func TestCreateReplicatedConfigMap(t *testing.T) {
+	source := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "app-config",
+			Namespace: "production",
+			Labels:    map[string]string{"app": "demo"},
+			Annotations: map[string]string{
+				AnnotationReplicateTo: "staging",
+			},
+		},
+		Data:       map[string]string{"setting": "value"},
+		BinaryData: map[string][]byte{"blob": {0x01, 0x02}},
+	}
+
+	target := CreateReplicatedConfigMap(source, "staging")
+
+	if target.Name != "app-config" || target.Namespace != "staging" {
+		t.Errorf("unexpected target identity: %s/%s", target.Namespace, target.Name)
+	}
+	if target.Data["setting"] != "value" {
+		t.Errorf("Data not copied, got %v", target.Data)
+	}
+	if string(target.BinaryData["blob"]) != string([]byte{0x01, 0x02}) {
+		t.Errorf("BinaryData not copied, got %v", target.BinaryData)
+	}
+	if target.Labels["app"] != "demo" {
+		t.Errorf("Labels not copied, got %v", target.Labels)
+	}
+	if target.Annotations[AnnotationReplicatedFrom] != "production/app-config" {
+		t.Errorf("replicated-from = %q, want %q", target.Annotations[AnnotationReplicatedFrom], "production/app-config")
+	}
+	if target.Annotations[AnnotationLastReplicatedAt] == "" {
+		t.Error("last-replicated-at annotation missing")
+	}
+	// The source's replication annotations must NOT be copied to the target
+	if target.Annotations[AnnotationReplicateTo] != "" {
+		t.Error("replicate-to annotation must not be copied to the pushed ConfigMap")
+	}
+
+	// Source without binaryData must not produce a binaryData map
+	plainSource := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "plain", Namespace: "production"},
+		Data:       map[string]string{"key": "value"},
+	}
+	plainTarget := CreateReplicatedConfigMap(plainSource, "staging")
+	if plainTarget.BinaryData != nil {
+		t.Errorf("expected nil BinaryData, got %v", plainTarget.BinaryData)
 	}
 }

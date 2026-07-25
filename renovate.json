@@ -69,14 +69,47 @@
       ]
     },
     {
-      "description": "Go modules: disable indirect dependency updates (only direct deps are managed by Renovate)",
+      "description": "Go modules: indirect deps must stay updatable because govulncheck gates the whole module graph; grouped into a single PR to limit noise",
       "matchManagers": [
         "gomod"
       ],
       "matchDepTypes": [
         "indirect"
       ],
-      "enabled": false
+      "groupName": "Go indirect modules",
+      "groupSlug": "go-indirect-modules"
+    },
+    {
+      "description": "Go modules: automerge indirect minor and patch updates after CI passes",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchDepTypes": [
+        "indirect"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Go modules: require manual review for indirect major updates",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchDepTypes": [
+        "indirect"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "automerge": false,
+      "labels": [
+        "dependencies",
+        "major-update"
+      ]
     },
     {
       "description": "Go modules: automerge minor and patch updates after CI passes (direct only)",
@@ -221,6 +254,58 @@
       "groupSlug": "go-openapi-swag",
       "matchPackageNames": [
         "/^github\\.com\\/go-openapi\\/swag(\\/|$)/"
+      ]
+    },
+    {
+      "description": "npm: automerge minor and patch updates",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "npm: require manual review for major updates",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "automerge": false,
+      "labels": [
+        "dependencies",
+        "major-update"
+      ]
+    },
+    {
+      "description": "Custom regex managers (Go version, envtest K8s version, setup-envtest): automerge minor and patch updates",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Custom regex managers: require manual review for major updates",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "automerge": false,
+      "labels": [
+        "dependencies",
+        "major-update"
       ]
     },
     {

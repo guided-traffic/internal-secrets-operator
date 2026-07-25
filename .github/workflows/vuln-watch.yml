@@ -1,0 +1,60 @@
+name: Vulnerability Watch
+
+# The "Vulnerability Check" status check is required for merging. A CVE published
+# against an existing dependency turns main red without any commit, which silently
+# blocks every open PR (including all Renovate updates). This workflow surfaces
+# that as a tracked issue instead of letting it be discovered by a stuck PR.
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  GO_VERSION: '1.26.5'
+
+jobs:
+  govulncheck:
+    name: Vulnerability Check (main)
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y build-essential
+
+      - name: Run vulnerability check
+        id: vuln
+        run: make vuln 2>&1 | tee vuln-report.txt
+
+      - name: Report vulnerabilities as issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TITLE: 'govulncheck: main is affected by known vulnerabilities'
+        run: |
+          set -euo pipefail
+          EXISTING=$(gh issue list --state open --search "$TITLE in:title" --json number -q '.[0].number // ""')
+          BODY=$(printf 'govulncheck failed on `main` (run: %s/%s/actions/runs/%s).\n\nEvery open PR is blocked until this is fixed, because "Vulnerability Check" is a required status check.\n\n```\n%s\n```\n' \
+            "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$(tail -c 40000 vuln-report.txt)")
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+          else
+            gh issue create --title "$TITLE" --label dependencies --label security --body "$BODY"
+          fi

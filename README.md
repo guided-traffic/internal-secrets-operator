@@ -5,250 +5,282 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/guided-traffic/internal-secrets-operator)](https://goreportcard.com/report/github.com/guided-traffic/internal-secrets-operator)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-A Kubernetes operator that automatically generates random secret values. Use it for auto-generating random credentials for applications running on Kubernetes.
+A Kubernetes operator that generates cryptographically secure random values for
+Secrets and replicates Secrets and ConfigMaps across namespaces. Everything is
+driven by annotations on plain core resources — no CRDs required.
 
-## Features
+```mermaid
+flowchart LR
+    U[User / GitOps] -- "Secret / ConfigMap with<br/>iso.gtrfc.com/* annotations" --> API[Kubernetes API]
+    CFG["/etc/secret-operator/config.yaml"] --> OP[internal-secrets-operator]
+    API -- watch --> OP
+    OP -- "generate & rotate values<br/>(crypto/rand)" --> API
+    OP -- "pull / push replication<br/>(Secrets + ConfigMaps)" --> API
+```
 
-### Secret Generation
-- 🔐 **Automatic Secret Generation** - Automatically generates cryptographically secure random values for Kubernetes Secrets
-- 🔄 **Automatic Secret Rotation** - Periodically rotate secrets based on configurable time intervals
-- 🎯 **Annotation-Based** - Simple annotation-based configuration, no CRDs required
-- 📏 **Configurable Length** - Customize the length of generated secrets per field
-- 🔢 **Multiple Types** - Support for `string` and `bytes` generation
-- 🔤 **Customizable Charset** - Configure which characters to include in generated strings
-- ✅ **Idempotent** - Only generates values for empty fields, preserves existing data
+## ✨ Key Features
 
-### Secret Replication
-- 🔄 **Pull-based Replication** - Secrets can pull data from other namespaces with mutual consent
-- 📤 **Push-based Replication** - Automatically push secrets to multiple target namespaces
-- 🛡️ **Secure by Design** - Mutual consent model prevents unauthorized access
-- 🌐 **Global Pull-Based Permissions** - Operator-level permissions for sources you cannot annotate
-- 🗂️ **ConfigMap Replication** - Pull- and push-based replication for ConfigMaps
-- 🎯 **Pattern Matching** - Support for glob patterns in namespace allowlists (`*`, `?`, `[abc]`, `[a-z]`)
-- 🔁 **Auto-sync** - Target Secrets automatically update when source changes
-- 🧹 **Auto-cleanup** - Pushed Secrets are automatically deleted when source is removed
-- 🚫 **Conflict Detection** - Prevents conflicting features (`autogenerate` + `replicate-from`)
-- ✨ **Flexible Combinations** - Generate secrets in one namespace and share with others
+- 🔐 **Automatic secret generation** — fills empty Secret fields with random values from `crypto/rand`
+- 🔑 **Keypair generation** — RSA, ECDSA, Ed25519 plus post-quantum ML-KEM (FIPS 203), ML-DSA (FIPS 204), SLH-DSA (FIPS 205)
+- 🔄 **Automatic rotation** — per-field rotation intervals, optionally restricted to maintenance windows
+- 🎯 **Annotation-based** — works on plain `v1/Secret` and `v1/ConfigMap`, no CRDs
+- 🤝 **Pull replication with mutual consent** — both source and target must opt in before data crosses namespaces
+- 📤 **Push replication** — push a Secret/ConfigMap to a list of namespaces, with finalizer-based cleanup
+- 🌐 **Global pull permissions** — operator-level allow rules for sources you cannot annotate
+- 🧩 **Feature toggles** — generator, Secret replicator, and ConfigMap replicator can be disabled independently
+- 📣 **Kubernetes Events** — every failure (and optionally every rotation) is visible in `kubectl describe`
 
-## Requirements
+## 📛 Naming conventions
 
-- Kubernetes 1.25+
+All annotations share the prefix `iso.gtrfc.com/`.
 
-## Quick Start
+**Annotations you set (generation, on Secrets):**
 
-### Installation
+| Annotation | Meaning |
+|------------|---------|
+| `iso.gtrfc.com/autogenerate` | Comma-separated list of data fields to generate |
+| `iso.gtrfc.com/type`, `iso.gtrfc.com/type.<field>` | Generation type (global / per field) |
+| `iso.gtrfc.com/length`, `iso.gtrfc.com/length.<field>` | Length (global / per field) |
+| `iso.gtrfc.com/curve`, `iso.gtrfc.com/curve.<field>` | ECDSA curve (global / per field) |
+| `iso.gtrfc.com/param`, `iso.gtrfc.com/param.<field>` | Post-quantum parameter set (global / per field) |
+| `iso.gtrfc.com/rotate`, `iso.gtrfc.com/rotate.<field>` | Rotation interval (global / per field) |
+| `iso.gtrfc.com/string.uppercase` · `string.lowercase` · `string.numbers` · `string.specialChars` · `string.allowedSpecialChars` | Charset options for `string` fields (Secret-wide, no per-field variant) |
 
-#### Using Helm
+**Annotations you set (replication, on Secrets and ConfigMaps):**
+
+| Annotation | Side | Meaning |
+|------------|------|---------|
+| `iso.gtrfc.com/replicatable-from-namespaces` | source (pull) | Namespace allowlist (glob) that may pull from this object |
+| `iso.gtrfc.com/replicate-from` | target (pull) | `"<namespace>/<name>"` of the source object |
+| `iso.gtrfc.com/replicate-to` | source (push) | Comma-separated target namespaces |
+
+**Annotations the operator sets:**
+
+| Annotation | Meaning |
+|------------|---------|
+| `iso.gtrfc.com/generated-at` | RFC 3339 timestamp of the last generation/rotation (one per Secret, not per field) |
+| `iso.gtrfc.com/replicated-from` | `"<namespace>/<name>"` of the source this object was replicated from |
+| `iso.gtrfc.com/last-replicated-at` | RFC 3339 timestamp of the last replication |
+
+**Generated Secret data keys:**
+
+| Key | Content |
+|-----|---------|
+| `<field>` | Generated value; for keypair types: the private key |
+| `<field>.pub` | Public key (keypair types only) |
+
+**Other fixed names:**
+
+| Name | Value |
+|------|-------|
+| Finalizer (push sources) | `iso.gtrfc.com/replicate-to-cleanup` |
+| Controller names | `secret-generator`, `secret-replicator`, `configmap-replicator` |
+| Event source names | `secret-operator`, `secret-replicator`, `configmap-replicator` |
+| Leader election lease ID | `secret-operator.guided-traffic.com` |
+| Config file path (in container) | `/etc/secret-operator/config.yaml` |
+| Container image (released) | `docker.io/guidedtraffic/internal-secrets-operator` |
+| Metrics / health ports | `8080` (`/metrics`) / `8081` (`/healthz`, `/readyz`) |
+
+**Helm resource names** (release name `internal-secrets-operator` collapses the
+`<release>-<chart>` pattern to just the chart name):
+
+| Resource | Name |
+|----------|------|
+| Deployment, ServiceAccount, ClusterRole, ClusterRoleBinding, ServiceMonitor | `<fullname>` |
+| ConfigMap (operator config) | `<fullname>-config` |
+| Service (metrics) | `<fullname>-metrics` |
+
+## 📚 Documentation
+
+| Document | Content |
+|----------|---------|
+| [DEVELOPER.md](DEVELOPER.md) | Repo layout, package responsibilities, reconcile flows, extension checklists, CI/release |
+| [SECURITY_ARCHITECTURE.md](SECURITY_ARCHITECTURE.md) | Trust boundaries, privilege footprint, isolation model, residual risks |
+| [Full reference](#-full-reference) | Every annotation, config option, and Helm value |
+| [Helm chart README](deploy/helm/internal-secrets-operator/README.md) | Chart-specific values documentation |
+| [Sample manifests](config/samples/) | Generation, post-quantum, and replication examples |
+| [controller-runtime](https://github.com/kubernetes-sigs/controller-runtime) | Upstream controller framework |
+
+## 🚀 TL;DR fast start
+
+Install via Helm (chart is published to GitHub Pages on every release):
 
 ```bash
 helm repo add internal-secrets-operator https://guided-traffic.github.io/internal-secrets-operator
-helm install internal-secrets-operator internal-secrets-operator/internal-secrets-operator
+helm repo update
+helm install internal-secrets-operator internal-secrets-operator/internal-secrets-operator \
+  --namespace internal-secrets-operator-system --create-namespace
 ```
 
-#### Using Kustomize
+Generate a password:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: my-app
+  annotations:
+    iso.gtrfc.com/autogenerate: password
+```
+
+Generate an RSA keypair (`length` is the key size in bits and required for `rsa`):
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: my-tls
+  annotations:
+    iso.gtrfc.com/autogenerate: tls-key
+    iso.gtrfc.com/type: rsa
+    iso.gtrfc.com/length: "4096"
+```
+
+Replicate a Secret into another namespace (both sides must consent):
+
+```yaml
+# Source
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-credentials
+  namespace: production
+  annotations:
+    iso.gtrfc.com/replicatable-from-namespaces: "staging"
+data:
+  password: cHJvZHBhc3M=
+---
+# Target
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-credentials
+  namespace: staging
+  annotations:
+    iso.gtrfc.com/replicate-from: "production/db-credentials"
+```
+
+Verify:
+
+```bash
+kubectl get secret my-app -o jsonpath='{.data.password}' | base64 -d
+kubectl describe secret my-app     # events show generation/rotation/replication errors
+```
+
+<details>
+<summary>Upgrade / uninstall / Kustomize install</summary>
+
+```bash
+# Upgrade
+helm repo update
+helm upgrade internal-secrets-operator internal-secrets-operator/internal-secrets-operator \
+  --namespace internal-secrets-operator-system
+
+# Uninstall
+helm uninstall internal-secrets-operator --namespace internal-secrets-operator-system
+```
+
+Kustomize (development/testing only — runs with built-in defaults, no config
+file, leader election disabled, image from `ghcr.io`):
 
 ```bash
 kubectl apply -k https://github.com/guided-traffic/internal-secrets-operator/config/default
 ```
 
-### Usage
+</details>
 
-Create a Secret with the `autogenerate` annotation:
+## 📖 Full reference
+
+### Generation annotations
+
+Applied to Secrets. Priority: `<key>.<field>` annotation > `<key>` annotation >
+config file > built-in default.
+
+| Annotation | Default | Description |
+|------------|---------|-------------|
+| `autogenerate` | *(required)* | Comma-separated field names. Empty entries are dropped; an empty list means the Secret is ignored. |
+| `type` / `type.<field>` | `string` # default | One of `string`, `bytes`, `rsa`, `ecdsa`, `ed25519`, `mlkem`, `mldsa`, `slhdsa` |
+| `length` / `length.<field>` | `32` # default | Characters (`string`), bytes (`bytes`), or key size in bits (`rsa`). Ignored by all other types. |
+| `curve` / `curve.<field>` | `P-256` # default | ECDSA curve: `P-256`, `P-384`, `P-521` |
+| `param` / `param.<field>` | type-dependent | Post-quantum parameter set, see [generation types](#generation-types) |
+| `rotate` / `rotate.<field>` | *(none — no rotation)* | Rotation interval, e.g. `24h`, `7d`. See [rotation](#automatic-rotation). |
+| `string.uppercase` | `true` # default | Include `A-Z` in generated strings |
+| `string.lowercase` | `true` # default | Include `a-z` |
+| `string.numbers` | `true` # default | Include `0-9` |
+| `string.specialChars` | `false` # default | Include special characters |
+| `string.allowedSpecialChars` | `!@#$%^&*()_+-=[]{}\|;:,.<>?` # default | Which special characters to use |
+
+Notes (behavior verified against
+[secret_controller.go](internal/controller/secret_controller.go)):
+
+- Existing field values are **never overwritten** by generation — only empty
+  fields are filled. Rotation is the exception and does overwrite.
+- The `string.*` charset options apply to **all** string fields of the Secret;
+  there is no per-field variant. At least one charset class must be enabled,
+  and `allowedSpecialChars` must be non-empty when `specialChars` is `true` —
+  otherwise the operator emits a Warning Event and changes nothing.
+- A generation error for one field aborts the whole reconcile: **no field** of
+  that Secret is written until the error is fixed.
+- For `rsa`, `length` must be ≥ `1024` ([generator.go](pkg/generator/generator.go)).
+  There is no RSA-specific default — leaving `length` unset means the global
+  default `32` is used as bit size and generation fails with a Warning Event.
+  Always set `length` explicitly for RSA (`2048` or `4096`).
+- Invalid `length.<field>` values (non-numeric, ≤ 0) are silently ignored and
+  the fallback level applies.
+
+### Generation types
+
+| Type | Output | `length` meaning | Use-case |
+|------|--------|------------------|----------|
+| `string` | Random string from the configured charset | Number of characters | Passwords, tokens |
+| `bytes` | Raw random bytes (Base64 in the Secret, like all Secret data) | Number of bytes | Encryption keys |
+| `rsa` | RSA keypair, PEM | Key size in bits (≥ 1024, use `2048`/`4096`) | TLS, signing |
+| `ecdsa` | ECDSA keypair, PEM | *(ignored — use `curve`)* | TLS, JWT (ES256/384/512) |
+| `ed25519` | Ed25519 keypair, PEM | *(ignored — fixed 256-bit)* | SSH, modern signing |
+| `mlkem` | ML-KEM keypair (FIPS 203), raw bytes | *(ignored — use `param`)* | Post-quantum key encapsulation |
+| `mldsa` | ML-DSA keypair (FIPS 204), raw bytes | *(ignored — use `param`)* | Post-quantum signatures |
+| `slhdsa` | SLH-DSA keypair (FIPS 205, SHA2 variants), raw bytes | *(ignored — use `param`)* | Post-quantum signatures (conservative, hash-based) |
+
+Keypair types write two data entries: `<field>` (private key) and
+`<field>.pub` (public key).
+
+**PEM encodings** (verified against [generator.go](pkg/generator/generator.go) —
+the three classical types use different standard encodings):
+
+| Type | Private key | Public key |
+|------|-------------|------------|
+| `rsa` | PKCS#1, `BEGIN RSA PRIVATE KEY` | PKCS#1, `BEGIN RSA PUBLIC KEY` |
+| `ecdsa` | SEC 1 / RFC 5915, `BEGIN EC PRIVATE KEY` | PKIX/SPKI, `BEGIN PUBLIC KEY` |
+| `ed25519` | PKCS#8, `BEGIN PRIVATE KEY` | PKIX/SPKI, `BEGIN PUBLIC KEY` |
+
+**Post-quantum parameter sets** (`param` / `param.<field>`; keys are raw
+bytes, not PEM):
+
+| Type | Parameters | Default | Library |
+|------|-----------|---------|---------|
+| `mlkem` | `768` (NIST level 3), `1024` (level 5) | `768` # default | Go stdlib `crypto/mlkem` |
+| `mldsa` | `65` (level 3), `87` (level 5) | `65` # default | `github.com/cloudflare/circl` |
+| `slhdsa` | `128s`, `128f`, `192s`, `192f`, `256s`, `256f` (`s` = small/slow, `f` = fast/large) | `128s` # default | `github.com/cloudflare/circl` (SHA2 variants) |
+
+<details>
+<summary>Examples: multiple fields, per-field types, keypairs, post-quantum</summary>
 
 ```yaml
+# Different types per field
 apiVersion: v1
 kind: Secret
 metadata:
-  name: example-secret
+  name: mixed-secret
   annotations:
-    iso.gtrfc.com/autogenerate: password
-data:
-  username: c29tZXVzZXI=  # someuser (base64 encoded)
-```
-
-After the operator reconciles, the Secret will be updated:
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: example-secret
-  annotations:
-    iso.gtrfc.com/autogenerate: password
-    iso.gtrfc.com/generated-at: "2025-12-03T10:00:00+01:00"
-type: Opaque
-data:
-  username: c29tZXVzZXI=
-  password: TWVwSU83L2huNXBralNTMHFwU3VKSkkwNmN4NmRpNTBBcVpuVDlLOQ==
-```
-
-## Annotations
-
-All annotations use the prefix `iso.gtrfc.com/`.
-
-### Core Annotations
-
-| Annotation | Description | Default |
-|------------|-------------|---------|
-| `autogenerate` | Comma-separated list of field names to auto-generate | *required* |
-| `type` | Default type for all fields: `string` or `bytes` | `string` |
-| `length` | Default length for all fields | `32` |
-| `type.<field>` | Type for a specific field (overrides `type`) | - |
-| `length.<field>` | Length for a specific field (overrides `length`) | - |
-| `curve` | Default elliptic curve for `ecdsa` fields | `P-256` |
-| `curve.<field>` | Elliptic curve for a specific field (overrides `curve`) | - |
-| `param` | Default parameter set for post-quantum types | Type-dependent |
-| `param.<field>` | Parameter set for a specific field (overrides `param`) | - |
-| `rotate` | Default rotation interval for all fields | - |
-| `rotate.<field>` | Rotation interval for a specific field (overrides `rotate`) | - |
-| `string.uppercase` | Include uppercase letters (A-Z) in generated strings | `true` |
-| `string.lowercase` | Include lowercase letters (a-z) in generated strings | `true` |
-| `string.numbers` | Include numbers (0-9) in generated strings | `true` |
-| `string.specialChars` | Include special characters in generated strings | `false` |
-| `string.allowedSpecialChars` | Which special characters to use (only when `string.specialChars` is `true`) | `!@#$%^&*()_+-=[]{}\|;:,.<>?` |
-| `generated-at` | Timestamp when values were generated (set by operator) | - |
-
-> **Note:** The `string.*` annotations apply to **all** string fields in the Secret. Per-field overrides (e.g. `string.specialChars.<field>`) are **not** supported. To use different character sets per field, split them into separate Secret resources.
->
-> **Note:** At least one of `string.uppercase`, `string.lowercase`, `string.numbers`, or `string.specialChars` must be `true`. If `string.specialChars` is `true`, `string.allowedSpecialChars` must not be empty.
->
-> **Note:** Annotation values override config file defaults (see [Configuration](#configuration)).
-
-### Generation Types
-
-| Type | Description | `length` meaning | Use-Case |
-|------|-------------|------------------|----------|
-| `string` | Alphanumeric string | Number of characters | Passwords, API keys, tokens |
-| `bytes` | Raw random bytes | Number of bytes | Encryption keys, binary secrets |
-| `rsa` | RSA keypair (PKCS#1 PEM) | Key size in bits (`2048`, `4096`) | TLS certificates, signing, encryption |
-| `ecdsa` | ECDSA keypair (PKCS#1 PEM) | *(ignored, use `curve`)* | TLS certificates, JWT signing (ES256/ES384/ES512) |
-| `ed25519` | Ed25519 keypair (PKCS#1 PEM) | *(ignored, fixed 256-bit)* | SSH keys, modern signing |
-| `mlkem` | ML-KEM (FIPS 203) post-quantum keypair (raw bytes) | *(ignored, use `param`)* | Post-quantum key encapsulation |
-| `mldsa` | ML-DSA (FIPS 204) post-quantum signature keypair (raw bytes) | *(ignored, use `param`)* | Post-quantum digital signatures |
-| `slhdsa` | SLH-DSA (FIPS 205) post-quantum hash-based signature keypair (raw bytes) | *(ignored, use `param`)* | Post-quantum digital signatures (conservative) |
-
-> **Note:** Kubernetes stores all secret data Base64-encoded. The `bytes` type generates raw bytes which are then Base64-encoded by Kubernetes when stored.
-
-#### Keypair Types (rsa, ecdsa, ed25519)
-
-For keypair types, the operator generates **two Secret data entries** per field:
-
-| Entry | Content |
-|-------|---------|
-| `<field>` | Private Key in PEM format |
-| `<field>.pub` | Public Key in PEM format |
-
-All keys are output in **PKCS#1 PEM** format:
-- RSA: `BEGIN RSA PRIVATE KEY` / `BEGIN RSA PUBLIC KEY`
-- ECDSA: `BEGIN EC PRIVATE KEY` / `BEGIN PUBLIC KEY`
-- Ed25519: `BEGIN PRIVATE KEY` / `BEGIN PUBLIC KEY`
-
-#### ML-KEM (Post-Quantum Key Encapsulation)
-
-ML-KEM (FIPS 203, formerly CRYSTALS-Kyber) generates a post-quantum key encapsulation keypair using Go stdlib `crypto/mlkem`.
-
-| Entry | Content |
-|-------|---------|
-| `<field>` | Decapsulation Key (raw bytes, 64 bytes) |
-| `<field>.pub` | Encapsulation Key (raw bytes, 1184 or 1568 bytes) |
-
-Supported parameter sets via the `param` annotation:
-
-| Parameter | Security Level | Encapsulation Key Size |
-|-----------|---------------|------------------------|
-| `768` (default) | NIST Level 3 (~AES-192) | 1184 bytes |
-| `1024` | NIST Level 5 (~AES-256) | 1568 bytes |
-
-#### ML-DSA (Post-Quantum Digital Signatures)
-
-ML-DSA (FIPS 204, formerly CRYSTALS-Dilithium) generates a post-quantum digital signature keypair using `github.com/cloudflare/circl`.
-
-| Entry | Content |
-|-------|---------|
-| `<field>` | Private Key / Signing Key (raw bytes) |
-| `<field>.pub` | Public Key / Verification Key (raw bytes) |
-
-Supported parameter sets via the `param` annotation:
-
-| Parameter | Security Level | Private Key Size | Public Key Size |
-|-----------|---------------|------------------|------------------|
-| `65` (default) | NIST Level 3 (~AES-192) | 4032 bytes | 1952 bytes |
-| `87` | NIST Level 5 (~AES-256) | 4896 bytes | 2592 bytes |
-
-#### SLH-DSA (Post-Quantum Hash-Based Signatures)
-
-SLH-DSA (FIPS 205, formerly SPHINCS+) generates a post-quantum hash-based signature keypair using `github.com/cloudflare/circl`. It offers a conservative alternative to ML-DSA with different security assumptions.
-
-| Entry | Content |
-|-------|---------|
-| `<field>` | Private Key / Signing Key (raw bytes) |
-| `<field>.pub` | Public Key / Verification Key (raw bytes) |
-
-Supported parameter sets via the `param` annotation (`s` = small signatures/slower, `f` = fast signatures/larger):
-
-| Parameter | Security Level | Private Key Size | Public Key Size |
-|-----------|---------------|------------------|------------------|
-| `128s` (default) | NIST Level 1 | 64 bytes | 32 bytes |
-| `128f` | NIST Level 1 | 64 bytes | 32 bytes |
-| `192s` | NIST Level 3 | 96 bytes | 48 bytes |
-| `192f` | NIST Level 3 | 96 bytes | 48 bytes |
-| `256s` | NIST Level 5 | 128 bytes | 64 bytes |
-| `256f` | NIST Level 5 | 128 bytes | 64 bytes |
-
-> **Note:** All post-quantum keys use raw bytes (not PEM). The `length` annotation is ignored; use `param` to select the parameter set.
-
-## Examples
-
-### Generate Multiple Fields
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: multi-field-secret
-  annotations:
-    iso.gtrfc.com/autogenerate: password,api-key,token
-type: Opaque
-```
-
-### Custom Length
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: custom-length-secret
-  annotations:
-    iso.gtrfc.com/autogenerate: password
-    iso.gtrfc.com/length: "64"
-type: Opaque
-```
-
-### Password with Special Characters
-
-Enable special characters and restrict the allowed set to a custom whitelist:
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: password-special-chars
-  annotations:
-    iso.gtrfc.com/autogenerate: password
+    iso.gtrfc.com/autogenerate: password,encryption-key
+    iso.gtrfc.com/type: string            # default for all fields
     iso.gtrfc.com/length: "24"
-    iso.gtrfc.com/string.specialChars: "true"
-    iso.gtrfc.com/string.allowedSpecialChars: "!@#$%^&*"
-type: Opaque
+    iso.gtrfc.com/type.encryption-key: bytes
+    iso.gtrfc.com/length.encryption-key: "32"
 ```
 
-Result:
-- `password`: 24-character string containing uppercase, lowercase, numbers, and special characters from `!@#$%^&*`.
-
-### Numbers-Only PIN
-
-Disable letters and special characters to generate a numeric-only value (e.g. for a PIN):
-
 ```yaml
+# Numbers-only PIN (charset options apply to ALL string fields)
 apiVersion: v1
 kind: Secret
 metadata:
@@ -259,74 +291,23 @@ metadata:
     iso.gtrfc.com/string.uppercase: "false"
     iso.gtrfc.com/string.lowercase: "false"
     iso.gtrfc.com/string.numbers: "true"
-type: Opaque
 ```
 
-Result:
-- `pin`: 6-digit numeric string.
-
-> **Note:** Charset annotations apply to **all** string fields in the Secret. To use different character sets per field, split them across separate Secret resources.
-
-### Generate Raw Bytes (e.g., for Encryption Keys)
-
 ```yaml
+# Password with a restricted special character set
 apiVersion: v1
 kind: Secret
 metadata:
-  name: encryption-secret
+  name: password-special-chars
   annotations:
-    iso.gtrfc.com/autogenerate: encryption-key
-    iso.gtrfc.com/type: bytes
-    iso.gtrfc.com/length: "32"
-type: Opaque
-```
-
-### Different Types per Field
-
-Generate a password (string) and an encryption key (bytes) with different lengths:
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: mixed-secret
-  annotations:
-    iso.gtrfc.com/autogenerate: password,encryption-key
-    iso.gtrfc.com/type: string
+    iso.gtrfc.com/autogenerate: password
     iso.gtrfc.com/length: "24"
-    iso.gtrfc.com/type.encryption-key: bytes
-    iso.gtrfc.com/length.encryption-key: "32"
-type: Opaque
-data:
-  username: c29tZXVzZXI=
+    iso.gtrfc.com/string.specialChars: "true"
+    iso.gtrfc.com/string.allowedSpecialChars: "!@#$%^&*"
 ```
 
-Result:
-- `password`: 24-character alphanumeric string
-- `encryption-key`: 32 random bytes (Base64-encoded)
-- `username`: preserved as-is
-
-### Generate an RSA Keypair
-
 ```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: tls-keypair
-  annotations:
-    iso.gtrfc.com/autogenerate: tls-key
-    iso.gtrfc.com/type: rsa
-    iso.gtrfc.com/length: "4096"
-type: Opaque
-```
-
-Result:
-- `tls-key`: RSA 4096-bit Private Key (PEM, PKCS#1)
-- `tls-key.pub`: RSA Public Key (PEM)
-
-### Generate an ECDSA Keypair
-
-```yaml
+# ECDSA keypair (data keys: signing-key, signing-key.pub)
 apiVersion: v1
 kind: Secret
 metadata:
@@ -334,371 +315,109 @@ metadata:
   annotations:
     iso.gtrfc.com/autogenerate: signing-key
     iso.gtrfc.com/type: ecdsa
-    iso.gtrfc.com/curve: "P-256"
-type: Opaque
+    iso.gtrfc.com/curve: "P-384"
 ```
 
-Result:
-- `signing-key`: ECDSA P-256 Private Key (PEM, PKCS#1)
-- `signing-key.pub`: ECDSA P-256 Public Key (PEM)
-
-Supported curves:
-
-| Curve | Security Level | JWT Algorithm |
-|-------|---------------|---------------|
-| `P-256` (default) | ~RSA 3072 | ES256 |
-| `P-384` | ~RSA 7680 | ES384 |
-| `P-521` | ~RSA 15360 | ES512 |
-
-### Generate an Ed25519 Keypair
-
 ```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: ssh-keypair
-  annotations:
-    iso.gtrfc.com/autogenerate: ssh-key
-    iso.gtrfc.com/type: ed25519
-type: Opaque
-```
-
-Result:
-- `ssh-key`: Ed25519 Private Key (PEM)
-- `ssh-key.pub`: Ed25519 Public Key (PEM)
-
-> **Note:** Ed25519 keys have a fixed size (256-bit). The `length` and `curve` annotations are ignored for this type.
-
-### Generate an ML-KEM Keypair (Post-Quantum)
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: pq-kem-secret
-  annotations:
-    iso.gtrfc.com/autogenerate: kem-key
-    iso.gtrfc.com/type: mlkem
-    iso.gtrfc.com/param: "768"
-type: Opaque
-```
-
-Result:
-- `kem-key`: ML-KEM-768 Decapsulation Key (raw bytes)
-- `kem-key.pub`: ML-KEM-768 Encapsulation Key (raw bytes)
-
-> **Note:** ML-KEM keys use raw bytes (not PEM). The `length` annotation is ignored; use `param` to select the parameter set (`768` or `1024`).
-
-### Generate an ML-DSA Keypair (Post-Quantum)
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: pq-sig-secret
-  annotations:
-    iso.gtrfc.com/autogenerate: signing-key
-    iso.gtrfc.com/type: mldsa
-    iso.gtrfc.com/param: "65"
-type: Opaque
-```
-
-Result:
-- `signing-key`: ML-DSA-65 Private Key (raw bytes)
-- `signing-key.pub`: ML-DSA-65 Public Key (raw bytes)
-
-> **Note:** ML-DSA keys use raw bytes (not PEM). The `length` annotation is ignored; use `param` to select the parameter set (`65` or `87`).
-
-### Generate an SLH-DSA Keypair (Post-Quantum)
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: pq-hash-sig-secret
-  annotations:
-    iso.gtrfc.com/autogenerate: hash-signing-key
-    iso.gtrfc.com/type: slhdsa
-    iso.gtrfc.com/param: "128s"
-type: Opaque
-```
-
-Result:
-- `hash-signing-key`: SLH-DSA-128s Private Key (raw bytes)
-- `hash-signing-key.pub`: SLH-DSA-128s Public Key (raw bytes)
-
-> **Note:** SLH-DSA keys use raw bytes (not PEM). The `length` annotation is ignored; use `param` to select the parameter set (`128s`, `128f`, `192s`, `192f`, `256s`, or `256f`).
-
-### Mixed: Passwords, RSA, ECDSA, Ed25519, and Post-Quantum
-
-Generate different types of secrets in a single Secret resource:
-
-```yaml
+# One Secret with classical and post-quantum keys
 apiVersion: v1
 kind: Secret
 metadata:
   name: mixed-credentials
   annotations:
-    iso.gtrfc.com/autogenerate: password,tls-key,ecdsa-key,ssh-key,kem-key,dsa-key,hash-sig-key
+    iso.gtrfc.com/autogenerate: password,tls-key,ssh-key,kem-key,dsa-key,hash-sig-key
     iso.gtrfc.com/type: string
-    iso.gtrfc.com/length: "32"
     iso.gtrfc.com/type.tls-key: rsa
     iso.gtrfc.com/length.tls-key: "4096"
-    iso.gtrfc.com/type.ecdsa-key: ecdsa
-    iso.gtrfc.com/curve.ecdsa-key: "P-384"
     iso.gtrfc.com/type.ssh-key: ed25519
     iso.gtrfc.com/type.kem-key: mlkem
-    iso.gtrfc.com/param.kem-key: "768"
+    iso.gtrfc.com/param.kem-key: "1024"
     iso.gtrfc.com/type.dsa-key: mldsa
-    iso.gtrfc.com/param.dsa-key: "65"
+    iso.gtrfc.com/param.dsa-key: "87"
     iso.gtrfc.com/type.hash-sig-key: slhdsa
-    iso.gtrfc.com/param.hash-sig-key: "128s"
-type: Opaque
+    iso.gtrfc.com/param.hash-sig-key: "192f"
 ```
 
-Result:
-- `password`: 32-character alphanumeric string
-- `tls-key`: RSA 4096-bit Private Key (PEM)
-- `tls-key.pub`: RSA 4096-bit Public Key (PEM)
-- `ecdsa-key`: ECDSA P-384 Private Key (PEM)
-- `ecdsa-key.pub`: ECDSA P-384 Public Key (PEM)
-- `ssh-key`: Ed25519 Private Key (PEM)
-- `ssh-key.pub`: Ed25519 Public Key (PEM)
-- `kem-key`: ML-KEM-768 Decapsulation Key (raw bytes)
-- `kem-key.pub`: ML-KEM-768 Encapsulation Key (raw bytes)
-- `dsa-key`: ML-DSA-65 Private Key (raw bytes)
-- `dsa-key.pub`: ML-DSA-65 Public Key (raw bytes)
-- `hash-sig-key`: SLH-DSA-128s Private Key (raw bytes)
-- `hash-sig-key.pub`: SLH-DSA-128s Public Key (raw bytes)
+</details>
 
-## Automatic Secret Rotation
+### Regenerating values
 
-The operator can automatically rotate (regenerate) secrets at regular intervals. This is useful for:
+Generation never overwrites existing values. To force regeneration, remove the
+field (or the whole Secret):
 
-- **Security compliance** - Regular credential rotation as required by security policies
-- **Reducing blast radius** - Limiting the time window a compromised credential can be used
-- **Automated credential management** - No manual intervention needed for rotation
+```bash
+kubectl patch secret my-secret --type=json -p='[{"op": "remove", "path": "/data/password"}]'
+```
 
-### How Rotation Works
+### Automatic rotation
 
-1. When a Secret is created, the operator generates values and records the timestamp in `generated-at`
-2. The operator calculates when the next rotation is due based on the `rotate` annotation
-3. When the rotation interval expires, all fields with rotation enabled are regenerated
-4. The `generated-at` timestamp is updated to the current time
-5. The cycle repeats automatically
+Rotation **overwrites** existing values on a schedule. Enable per Secret with
+`rotate` (all fields) or `rotate.<field>` (one field; overrides `rotate`).
+Fields without any rotate annotation are generated once and never rotated.
 
-> **Important:** Rotation **overwrites existing values**. This is different from initial generation, which only fills empty fields.
+Duration format: Go durations (`30s`, `15m`, `24h`, `1h30m`) plus a `d` suffix
+for days (`7d` = 168h).
 
-### Duration Format
+Behavior (verified against [secret_controller.go](internal/controller/secret_controller.go)):
 
-The `rotate` annotation accepts durations in Go format:
+- The operator stores **one** `generated-at` timestamp per Secret. Writing any
+  field (initial generation or rotation) resets the rotation clock for **all**
+  fields of that Secret.
+- Intervals below `rotation.minInterval` (default `5m` # default): the field is
+  **not rotated** — a Warning Event (`RotationFailed`) is emitted each
+  reconcile, and initial generation of an empty field still happens. The
+  interval is *not* clamped to the minimum.
+- Malformed `rotate` values are **silently ignored** (fallback to the
+  Secret-wide `rotate`, then to "no rotation") — check your durations, there
+  is no error event for typos.
+- The operator requeues itself for the earliest due rotation; no external
+  scheduler is involved.
+- Consumers must reload rotated credentials — pair rotation with a tool like
+  [Reloader](https://github.com/stakater/Reloader) or watch the Secret.
 
-| Unit | Suffix | Example |
-|------|--------|---------|
-| Seconds | `s` | `30s` |
-| Minutes | `m` | `15m` |
-| Hours | `h` | `24h` |
-| Days | `d` | `7d` |
+When `rotation.createEvents` is enabled, each rotation emits a Normal Event
+(`RotationSucceeded`); Warning Events are always emitted.
 
-You can combine units: `1h30m` (1 hour and 30 minutes), `7d12h` (7 days and 12 hours)
-
-### Basic Rotation Example
-
-Rotate password every 24 hours:
+<details>
+<summary>Rotation examples</summary>
 
 ```yaml
+# Rotate everything daily, password weekly, api-key never
 apiVersion: v1
 kind: Secret
 metadata:
   name: rotating-secret
   annotations:
-    iso.gtrfc.com/autogenerate: password
-    iso.gtrfc.com/rotate: "24h"
-type: Opaque
-```
-
-### Per-Field Rotation Intervals
-
-Different fields can have different rotation schedules:
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: multi-rotation-secret
-  annotations:
     iso.gtrfc.com/autogenerate: password,api-key,encryption-key
-    iso.gtrfc.com/rotate: "24h"              # Default: rotate daily
-    iso.gtrfc.com/rotate.password: "7d"      # Override: rotate weekly
-    iso.gtrfc.com/rotate.api-key: "30d"      # Override: rotate monthly
-    # encryption-key uses default (24h)
-type: Opaque
+    iso.gtrfc.com/rotate: "24h"
+    iso.gtrfc.com/rotate.password: "7d"
+    # api-key and encryption-key inherit 24h from `rotate`
 ```
 
-Result:
-- `password`: Rotates every 7 days
-- `api-key`: Rotates every 30 days
-- `encryption-key`: Rotates every 24 hours (default)
-
-### Selective Rotation
-
-Only rotate specific fields, while others remain static:
-
 ```yaml
+# Only password rotates; api-key is generated once
 apiVersion: v1
 kind: Secret
 metadata:
-  name: selective-rotation-secret
+  name: selective-rotation
   annotations:
     iso.gtrfc.com/autogenerate: password,api-key
     iso.gtrfc.com/rotate.password: "7d"
-    # api-key has no rotate annotation → never auto-rotated
-type: Opaque
 ```
 
-Result:
-- `password`: Rotates every 7 days
-- `api-key`: Generated once, never automatically rotated
+</details>
 
-### Rotation Events
+### Maintenance windows
 
-When `rotation.createEvents` is enabled in the configuration, the operator creates Kubernetes Events when secrets are rotated:
-
-```bash
-kubectl describe secret rotating-secret
-```
-
-```
-Events:
-  Type    Reason          Age   From                        Message
-  ----    ------          ----  ----                        -------
-  Normal  SecretRotated   5s    internal-secrets-operator   Rotated 1 field(s): password
-```
-
-### Minimum Rotation Interval
-
-To prevent accidental tight rotation loops (which could cause excessive API load), the operator enforces a minimum rotation interval. By default, this is **5 minutes**.
-
-If you specify a rotation interval below `minInterval`, the operator:
-1. Creates a **Warning Event** on the Secret
-2. Uses `minInterval` as the actual rotation interval
-
-```yaml
-# This will trigger a warning and use minInterval (5m) instead
-annotations:
-  iso.gtrfc.com/rotate: "30s"  # Too short!
-```
-
-### Rotation Configuration
-
-Configure rotation behavior via Helm values:
-
-```yaml
-config:
-  rotation:
-    # Minimum allowed rotation interval (prevents tight loops)
-    minInterval: 5m
-
-    # Create Normal Events when secrets are rotated
-    # Useful for auditing, but may create many events with frequent rotations
-    createEvents: false
-
-    # Maintenance windows for secret rotation
-    maintenanceWindows:
-      enabled: false
-      windows: []
-```
-
-Or via command line:
-
-```bash
-helm install internal-secrets-operator internal-secrets-operator/internal-secrets-operator \
-  --set config.rotation.minInterval=10m \
-  --set config.rotation.createEvents=true
-```
-
-## Maintenance Windows
-
-Maintenance windows allow you to restrict secret rotation to specific time periods. This is useful for:
-
-- **Avoiding disruptions** - Rotate secrets during low-traffic periods
-- **Compliance requirements** - Restrict changes to approved maintenance windows
-- **Coordinated updates** - Align rotation with deployment schedules
-
-### How Maintenance Windows Work
-
-1. When rotation is due, the operator checks if the current time is within any maintenance window
-2. If inside a window: Rotation proceeds immediately
-3. If outside all windows: Rotation is **deferred** until the next window starts
-4. A Normal Event is created to inform you that rotation was deferred
-5. The controller automatically reschedules reconciliation for the next window start
-
-> **Note:** Initial secret generation (when a field has no value) is **NOT affected** by maintenance windows. Only rotation of existing values is restricted.
-
-### Maintenance Window Configuration
-
-Configure via Helm values:
+Restrict **rotation** (not initial generation) to configured time windows.
+Configured in the operator config, not per Secret:
 
 ```yaml
 config:
   rotation:
     maintenanceWindows:
-      enabled: true
-      windows:
-        - name: "weekend-night"
-          days: ["saturday", "sunday"]
-          startTime: "03:00"
-          endTime: "05:00"
-          timezone: "Europe/Berlin"
-        - name: "weekday-maintenance"
-          days: ["wednesday"]
-          startTime: "02:00"
-          endTime: "04:00"
-          timezone: "UTC"
-```
-
-### Window Configuration Options
-
-| Field | Description | Example |
-|-------|-------------|---------|
-| `name` | Descriptive name for logging | `"weekend-night"` |
-| `days` | List of weekdays when the window is active | `["saturday", "sunday"]` |
-| `startTime` | Start time in 24-hour format (HH:MM) | `"03:00"` |
-| `endTime` | End time in 24-hour format (HH:MM) | `"05:00"` |
-| `timezone` | IANA timezone identifier | `"Europe/Berlin"` |
-
-#### Supported Day Names
-
-`sunday`, `monday`, `tuesday`, `wednesday`, `thursday`, `friday`, `saturday` (case-insensitive)
-
-#### Supported Timezones
-
-Any IANA timezone is supported, for example:
-- `UTC`
-- `Europe/Berlin`, `Europe/London`, `Europe/Paris`
-- `America/New_York`, `America/Los_Angeles`
-- `Asia/Tokyo`, `Asia/Shanghai`
-- `Australia/Sydney`
-
-### Validation Rules
-
-The operator validates maintenance window configuration at startup:
-
-| Rule | Invalid Example | Error |
-|------|-----------------|-------|
-| `endTime` must be after `startTime` | `startTime: "05:00"`, `endTime: "03:00"` | Operator fails to start (CrashLoop) |
-| At least one day required | `days: []` | Operator fails to start |
-| Valid timezone required | `timezone: "Invalid/Zone"` | Operator fails to start |
-| Valid time format | `startTime: "25:00"` | Operator fails to start |
-
-### Example: Weekend-Only Rotation
-
-```yaml
-config:
-  rotation:
-    maintenanceWindows:
-      enabled: true
-      windows:
+      enabled: false            # default
+      windows:                  # example
         - name: "weekend-night"
           days: ["saturday", "sunday"]
           startTime: "03:00"
@@ -706,210 +425,96 @@ config:
           timezone: "Europe/Berlin"
 ```
 
-With this configuration, a secret with `rotate: "24h"` will:
-- Wait until Saturday or Sunday between 03:00-05:00 Berlin time
-- Rotate during the window
-- Wait again for the next window if rotation is due outside the window
+| Field | Rules |
+|-------|-------|
+| `name` | Optional, used in events/logs |
+| `days` | ≥ 1 of `sunday` … `saturday` (case-insensitive) |
+| `startTime` / `endTime` | `HH:MM`, 24h; `endTime` must be after `startTime` (no overnight windows) |
+| `timezone` | Any IANA timezone, required |
 
-### Viewing Deferred Rotations
+Validation runs at startup; invalid windows prevent the operator from starting.
+When rotation is due outside all windows it is deferred: a Normal Event
+(`RotationDeferred`) records the next window start and the controller requeues
+itself for that time.
 
-When rotation is deferred, a Normal Event is created:
+### Replication
 
-```bash
-kubectl describe secret rotating-secret
-```
+Replication works identically for Secrets and ConfigMaps (ConfigMaps also
+replicate `binaryData`). Three annotations drive it:
 
-```
-Events:
-  Type    Reason           Age   From                        Message
-  ----    ------           ----  ----                        -------
-  Normal  RotationDeferred 5s    internal-secrets-operator   Rotation for field "password" deferred until next maintenance window at 2026-02-07T03:00:00Z (window: weekend-night)
-```
+| Annotation | Side | Value |
+|------------|------|-------|
+| `replicatable-from-namespaces` | pull source | Namespace allowlist: exact names, globs (`env-*`, `ns-[0-9]`), or `*` for all |
+| `replicate-from` | pull target | `"<namespace>/<name>"` — exactly one source per target |
+| `replicate-to` | push source | Comma-separated namespace list |
 
-### Application Considerations
+**Pull-based replication — mutual consent.** Data flows only when *both* sides
+opt in: the source allowlists the target namespace **or** a
+[global pull permission](#global-pull-based-permissions) matches, *and* the
+target names the source in `replicate-from`. The annotation allowlist is
+checked first, then global permissions
+([global_permissions.go](pkg/replicator/global_permissions.go)).
 
-When using automatic rotation, ensure your applications can handle credential changes:
+Glob syntax for the allowlist: `*`, `?`, `[abc]`, `[a-z]`, `[0-9]`.
 
-1. **Reload on change** - Use tools like [Reloader](https://github.com/stakater/Reloader) to restart pods when secrets change
-2. **Watch for changes** - Applications can watch the Secret and reload credentials dynamically
-3. **Graceful handling** - Implement retry logic for authentication failures during rotation windows
-4. **Coordinate rotation** - Consider rotation timing to minimize disruption (e.g., during low-traffic periods)
+> **Security note:** `replicatable-from-namespaces: "*"` lets **any**
+> namespace pull the object. Anyone with permission to create a Secret with
+> annotations in an allowlisted namespace receives the data — the consent
+> model delegates access control to namespace-level RBAC. See
+> [SECURITY_ARCHITECTURE.md](SECURITY_ARCHITECTURE.md).
 
-#### Example: Using Reloader
+Pull behavior:
+
+- Targets sync automatically when the source changes (watch-driven).
+- Replication **merges** data: source keys overwrite target keys, but keys
+  deleted from the source remain in the target until the target is recreated.
+  Do not rely on key removal propagating.
+- Labels are copied only when a push target is first created; label changes
+  never propagate afterwards. Source annotations are never copied.
+- If the source is deleted, the target keeps its last data (snapshot) and a
+  Warning Event (`SourceDeleted`) is emitted.
+- `autogenerate` + `replicate-from` on the same Secret is a conflict: the
+  replicator refuses (Warning `ConflictingFeatures`) while the generator still
+  runs — effectively generation wins and pull stays disabled. Fix by removing
+  one of the two annotations.
+
+**Push-based replication.** A source with `replicate-to` creates/updates a
+copy (same name) in each listed namespace:
+
+- The operator adds the finalizer `iso.gtrfc.com/replicate-to-cleanup` to the
+  **source**; deleting the source deletes all pushed copies, then releases the
+  finalizer.
+- Pushed copies carry `replicated-from: "<ns>/<name>"`. Only objects whose
+  annotation matches the source are ever updated or cleaned up.
+- If a target of the same name exists without that annotation, it is
+  **skipped** — Warning `PushFailed` on the source, the existing object is
+  never adopted or overwritten.
+- Per-namespace failures don't abort the loop; failed targets are retried on
+  the next watch event.
+- `autogenerate` + `replicate-to` is valid: generate once, push everywhere.
+
+> **Warning:** cleanup deletes every object in the cluster whose
+> `replicated-from` matches the source — including **pull** targets of that
+> same source, since pull writes the same annotation. If a source is both
+> pulled from and pushed elsewhere, deleting it also deletes the pull targets'
+> objects.
+
+<details>
+<summary>Replication examples (pull, push, ConfigMap, generate+push)</summary>
 
 ```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: my-app
-  annotations:
-    reloader.stakater.com/auto: "true"  # Restart when any mounted secret changes
-spec:
-  template:
-    spec:
-      containers:
-        - name: app
-          envFrom:
-            - secretRef:
-                name: rotating-secret
-```
-
-## Secret Replication
-
-The operator supports replicating Secrets across namespaces in two modes:
-- **Pull-based**: A target Secret pulls data from a source Secret in another namespace
-- **Push-based**: A source Secret automatically pushes its data to target namespaces
-
-Both modes use a **mutual consent** security model and support automatic synchronization.
-
-### Pull-based Replication
-
-Pull-based replication requires **explicit consent from both sides**:
-
-1. **Source Secret** must have `replicatable-from-namespaces` annotation (allowlist)
-2. **Target Secret** must have `replicate-from` annotation pointing to the source
-
-#### Example: Pull Replication
-
-```yaml
----
-# Source Secret in production namespace
+# Pull with glob allowlist
 apiVersion: v1
 kind: Secret
 metadata:
-  name: db-credentials
-  namespace: production
+  name: shared-ca
+  namespace: infra
   annotations:
-    # Allow staging namespace to replicate from this Secret
-    iso.gtrfc.com/replicatable-from-namespaces: "staging"
-type: Opaque
-data:
-  username: cHJvZHVzZXI=  # produser
-  password: cHJvZHBhc3M=  # prodpass
-
----
-# Target Secret in staging namespace
-apiVersion: v1
-kind: Secret
-metadata:
-  name: db-credentials
-  namespace: staging
-  annotations:
-    # Pull data from production/db-credentials
-    iso.gtrfc.com/replicate-from: "production/db-credentials"
-type: Opaque
-# data will be automatically populated
+    iso.gtrfc.com/replicatable-from-namespaces: "team-*,staging"
 ```
 
-#### Glob Pattern Matching
-
-The `replicatable-from-namespaces` annotation supports glob patterns:
-
 ```yaml
-annotations:
-  # Allow specific namespaces
-  iso.gtrfc.com/replicatable-from-namespaces: "staging,development"
-
-  # Allow all namespaces matching pattern
-  iso.gtrfc.com/replicatable-from-namespaces: "env-*,namespace-[0-9]*"
-
-  # Allow ALL namespaces
-  iso.gtrfc.com/replicatable-from-namespaces: "*"
-```
-
-**Supported glob patterns:**
-- `*` - matches any sequence of characters
-- `?` - matches any single character
-- `[abc]` - matches any character in the set (a, b, or c)
-- `[a-z]` - matches any character in the range (a through z)
-- `[0-9]` - matches any digit
-
-#### Pull Replication Behavior
-
-- ✅ Target automatically syncs when source changes
-- ✅ If source is deleted, target keeps last known data (snapshot)
-- ✅ Existing data in target is overwritten (replicated data wins)
-- ✅ Replication only occurs with mutual consent (both annotations match) or via a global pull-based permission
-- ❌ Target cannot replicate from multiple sources (one source per target)
-
-### Global Pull-Based Permissions
-
-Sometimes the source object cannot be modified (e.g. it is managed by another
-controller or team), so the source-side `replicatable-from-namespaces`
-annotation cannot be set. For these cases, pull-based replication can be
-allowed globally in the operator configuration:
-
-```yaml
-# Helm values.yaml (rendered into /etc/secret-operator/config.yaml)
-config:
-  globalPullBasedPermissions:
-    - # Comma-separated list of exact namespace names to replicate FROM
-      fromNamespace: "namespace-a"
-      # Comma-separated list of exact namespace names to replicate TO
-      toNamespace: "namespace-b,namespace-c"
-      # Glob pattern (*, ?, [abc], [a-z]) matched against the SOURCE object name.
-      # Use "*" to allow all object names.
-      validationPattern: "shoot-*"
-      # Which object kinds this permission applies to (both default to false)
-      allowConfigMap: true
-      allowSecret: false
-```
-
-With this permission in place, any target Secret/ConfigMap in `namespace-b`
-or `namespace-c` can pull from objects in `namespace-a` whose name matches
-`shoot-*` — without any annotation on the source object:
-
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: shoot-ca-bundle
-  namespace: namespace-b
-  annotations:
-    iso.gtrfc.com/replicate-from: "namespace-a/shoot-ca-bundle"
-```
-
-#### Global Permission Behavior
-
-- ✅ The target still needs the `replicate-from` annotation (pull is always explicit)
-- ✅ Permissions are additive: replication is allowed if the source annotation **or** a global permission matches
-- ✅ `fromNamespace`/`toNamespace` accept only exact namespace names (comma-separated), no patterns
-- ✅ `validationPattern` restricts which source objects may be pulled (glob on the object name)
-- ✅ Targets automatically sync when a globally-permitted source changes
-- ⚠️ Invalid permissions (empty namespaces, invalid glob, no kind allowed) prevent operator startup
-
-### ConfigMap Replication
-
-ConfigMaps support **pull-based and push-based** replication with the same
-annotations and behavior as Secrets — including mutual consent, global
-pull-based permissions, auto-sync on source changes, and automatic cleanup of
-pushed ConfigMaps when the source is deleted:
-
-```yaml
-# Source ConfigMap
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: app-config
-  namespace: production
-  annotations:
-    iso.gtrfc.com/replicatable-from-namespaces: "staging"
-data:
-  settings.json: '{"env": "prod"}'
----
-# Target ConfigMap
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: app-config
-  namespace: staging
-  annotations:
-    iso.gtrfc.com/replicate-from: "production/app-config"
-```
-
-Push-based replication uses the same `replicate-to` annotation as Secrets:
-
-```yaml
+# Push a ConfigMap to two namespaces
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -921,573 +526,214 @@ data:
   settings.json: '{"env": "prod"}'
 ```
 
-Both `data` and `binaryData` are replicated. The feature can be disabled via
-`features.configMapReplicator: false`.
-
-### Push-based Replication
-
-Push-based replication automatically creates and maintains Secrets in target namespaces.
-
-#### Example: Push Replication
-
 ```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: app-secret
-  namespace: production
-  annotations:
-    # Push this Secret to staging and development namespaces
-    iso.gtrfc.com/replicate-to: "staging,development"
-type: Opaque
-data:
-  app-id: YXBwLTEyMzQ1  # app-12345
-  app-secret: c2VjcmV0a2V5  # secretkey
-```
-
-This will automatically create `app-secret` in both `staging` and `development` namespaces.
-
-#### Push Replication Behavior
-
-- ✅ Automatically creates Secrets in target namespaces
-- ✅ Targets automatically sync when source changes
-- ✅ Pushed Secrets have `replicated-from` annotation for tracking
-- ✅ When source is deleted, all pushed Secrets are automatically cleaned up
-- ⚠️ If target exists without `replicated-from` annotation: Skipped (Warning Event)
-- ✅ If target exists with matching `replicated-from`: Updated
-
-### Replication Annotations
-
-| Annotation | Used By | Description | Example |
-|------------|---------|-------------|---------|
-| `replicatable-from-namespaces` | Source (pull) | Allowlist of namespaces that can pull from this Secret | `"staging,dev"`, `"env-*"`, `"*"` |
-| `replicate-from` | Target (pull) | Source Secret to pull data from | `"production/db-credentials"` |
-| `replicate-to` | Source (push) | Target namespaces to push this Secret to | `"staging,development"` |
-| `replicated-from` | Target (auto) | Indicates this Secret was replicated (set by operator) | `"production/app-secret"` |
-| `last-replicated-at` | Target (auto) | Timestamp of last replication (set by operator) | `"2025-12-05T10:00:00Z"` |
-
-> **Note:** All replication annotations work identically on ConfigMaps.
-
-### Combining Generation and Replication
-
-You can combine secret generation with replication:
-
-#### ✅ Valid: Generate and Allow Pull
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: api-credentials
-  namespace: production
-  annotations:
-    # Generate API key automatically
-    iso.gtrfc.com/autogenerate: "api-key"
-    iso.gtrfc.com/length: "32"
-
-    # Allow other namespaces to pull
-    iso.gtrfc.com/replicatable-from-namespaces: "staging,development"
-type: Opaque
-```
-
-#### ✅ Valid: Generate and Push
-
-```yaml
+# Generate in one namespace, push to app namespaces
 apiVersion: v1
 kind: Secret
 metadata:
   name: encryption-keys
   namespace: security
   annotations:
-    # Generate encryption keys
     iso.gtrfc.com/autogenerate: "master-key,data-key"
     iso.gtrfc.com/type: "bytes"
     iso.gtrfc.com/length: "32"
-
-    # Push to application namespaces
     iso.gtrfc.com/replicate-to: "app-1,app-2,app-3"
-type: Opaque
 ```
 
-#### ❌ Invalid: Generate and Pull (Conflicting Features)
+More: [config/samples/](config/samples/)
+
+</details>
+
+### Global pull-based permissions
+
+For sources you cannot annotate (managed by another controller/team),
+pull consent can be granted in the operator configuration instead:
 
 ```yaml
-# This will NOT work and will generate a Warning Event
-apiVersion: v1
-kind: Secret
-metadata:
-  name: invalid-secret
-  namespace: default
-  annotations:
-    # ERROR: Cannot use both autogenerate and replicate-from
-    iso.gtrfc.com/autogenerate: "password"
-    iso.gtrfc.com/replicate-from: "other-ns/other-secret"
-type: Opaque
+globalPullBasedPermissions: []      # default
+# - fromNamespace: "namespace-a"           # exact names, comma-separated
+#   toNamespace: "namespace-b,namespace-c" # exact names, comma-separated
+#   validationPattern: "shoot-*"           # glob on the SOURCE OBJECT NAME
+#   allowConfigMap: true                   # default false
+#   allowSecret: false                     # default false
 ```
 
-### Replication Examples
+- Replaces only the **source-side** consent; targets still need
+  `replicate-from`. Additive to annotations (annotation OR global permission).
+- Namespaces are matched **exactly** (validated as DNS-1123 labels at startup —
+  no patterns, `*` is rejected); the object name is matched via glob.
+- Startup validation: non-empty namespace lists, non-empty valid glob, at
+  least one of `allowSecret`/`allowConfigMap` — violations prevent startup.
 
-See the [replication examples](config/samples/) for more:
-- [Pull-based replication](config/samples/secret_pull_replication.yaml)
-- [Push-based replication](config/samples/secret_push_replication.yaml)
-- [Combined generation + replication](config/samples/secret_combined_generate_replicate.yaml)
+> **Security note:** a global permission bypasses the source owner's consent.
+> It is set by whoever controls the operator config (cluster operator). Scope
+> it narrowly: exact namespaces and a restrictive `validationPattern`.
 
-### Security Considerations
+### Configuration file
 
-1. **Mutual Consent**: Pull replication requires both source and target to explicitly allow it
-2. **Global Permissions**: `globalPullBasedPermissions` bypass the source-side consent — scope them narrowly (exact namespaces, restrictive `validationPattern`) since they are controlled by whoever installs the operator
-3. **RBAC**: The operator needs `create` and `delete` permissions for push-based replication
-4. **Namespace Access**: Control operator access via RBAC (ClusterRoleBinding or manual RoleBindings)
-5. **Audit Trail**: All replicated Secrets have `replicated-from` annotation for tracking
-6. **Events**: The operator creates Warning Events when replication fails
-
-### Troubleshooting Replication
-
-Check Secret events for replication errors:
-
-```bash
-kubectl describe secret my-secret
-```
-
-Common issues:
-- **Replication denied**: Target namespace not in source allowlist
-- **Source not found**: Check source namespace and name in `replicate-from`
-- **Push failed**: Target Secret exists without `replicated-from` annotation
-- **Conflicting features**: Both `autogenerate` and `replicate-from` annotations present
-
-## Regenerating Secrets
-
-The operator respects existing values and will **not** overwrite them. To regenerate a secret value, you have two options:
-
-### Option 1: Delete and Recreate the Secret
-
-```bash
-kubectl delete secret my-secret
-kubectl apply -f my-secret.yaml
-```
-
-### Option 2: Delete Specific Keys from the Secret
-
-To regenerate only specific fields, delete those keys from the Secret's data:
-
-```bash
-# Using kubectl patch to remove a specific key
-kubectl patch secret my-secret --type=json -p='[{"op": "remove", "path": "/data/password"}]'
-```
-
-Or edit the Secret directly:
-
-```bash
-kubectl edit secret my-secret
-# Remove the key you want to regenerate from the data section
-```
-
-The operator will automatically detect the missing field and generate a new value for it.
-
-## Helm Chart Configuration
-
-The operator's default behavior can be customized via Helm values:
-
-```yaml
-config:
-  defaults:
-    # Default generation type: "string", "bytes", "rsa", "ecdsa", "ed25519", "mlkem", "mldsa", or "slhdsa"
-    type: string
-    # Default length for generated values
-    length: 32
-    # String generation options (only used when type is "string")
-    string:
-      # Include uppercase letters (A-Z)
-      uppercase: true
-      # Include lowercase letters (a-z)
-      lowercase: true
-      # Include numbers (0-9)
-      numbers: true
-      # Include special characters
-      specialChars: false
-      # Which special characters to use (when specialChars is true)
-      allowedSpecialChars: "!@#$%^&*()_+-=[]{}|;:,.<>?"
-
-  rotation:
-    # Minimum allowed rotation interval (prevents accidental tight loops)
-    minInterval: 5m
-    # Create Normal Events when secrets are rotated
-    createEvents: false
-```
-
-### Example: Enable Special Characters by Default
-
-```bash
-helm install internal-secrets-operator internal-secrets-operator/internal-secrets-operator \
-  --set config.defaults.string.specialChars=true \
-  --set config.defaults.string.allowedSpecialChars='!@#$%'
-```
-
-> **Note:** At least one of `uppercase`, `lowercase`, `numbers`, or `specialChars` must be enabled.
-
-For the complete list of all Helm chart values including image configuration, resources, autoscaling, monitoring, and more, see the [Helm Chart Documentation](deploy/helm/internal-secrets-operator/README.md).
-
-## Configuration File
-
-The operator reads its configuration from a YAML file at startup. This allows customizing default behavior without code changes.
-
-### File Location
-
-| Deployment Method | Configuration Path |
-|-------------------|-------------------|
-| Helm Chart | `/etc/secret-operator/config.yaml` (via ConfigMap) |
-| Manual Deployment | `/etc/secret-operator/config.yaml` (default) |
-
-When deployed via Helm, the configuration is managed through the `config` section in `values.yaml` and automatically mounted as a ConfigMap.
-
-### Configuration Options
+Read once at startup from `/etc/secret-operator/config.yaml` (`--config` flag;
+built-in defaults apply when the file is missing). The Helm chart renders
+`.Values.config` 1:1 into this file and rolls the Deployment on changes.
 
 ```yaml
 defaults:
-  # Generation type: "string", "bytes", "rsa", "ecdsa", "ed25519", "mlkem", "mldsa", or "slhdsa"
-  # - string: Generates alphanumeric characters (configurable charset)
-  # - bytes: Generates raw random bytes
-  # - rsa: Generates RSA keypair in PKCS#1 PEM format
-  # - ecdsa: Generates ECDSA keypair in PKCS#1 PEM format
-  # - ed25519: Generates Ed25519 keypair in PKCS#1 PEM format
-  # - mlkem: Generates ML-KEM (FIPS 203) post-quantum keypair (raw bytes)
-  # - mldsa: Generates ML-DSA (FIPS 204) post-quantum signature keypair (raw bytes)
-  # - slhdsa: Generates SLH-DSA (FIPS 205) post-quantum hash-based signature keypair (raw bytes)
-  type: string
-
-  # Length of generated values
-  # - For "string": number of characters
-  # - For "bytes": number of bytes
-  length: 32
-
-  # String generation options (only used when type is "string")
+  type: string                    # default; allowed here: string, bytes, rsa, ecdsa, ed25519
+  length: 32                      # default
   string:
-    # Include uppercase letters (A-Z)
-    uppercase: true
-
-    # Include lowercase letters (a-z)
-    lowercase: true
-
-    # Include numbers (0-9)
-    numbers: true
-
-    # Include special characters
-    specialChars: false
-
-    # Which special characters to use (when specialChars is true)
-    allowedSpecialChars: "!@#$%^&*()_+-=[]{}|;:,.<>?"
+    uppercase: true               # default
+    lowercase: true               # default
+    numbers: true                 # default
+    specialChars: false           # default
+    allowedSpecialChars: "!@#$%^&*()_+-=[]{}|;:,.<>?"  # default
 
 rotation:
-  # Minimum allowed rotation interval
-  # Prevents accidental tight rotation loops that could overload the API server
-  minInterval: 5m
-
-  # Create Normal Events when secrets are rotated
-  # Useful for auditing, but may create many events with frequent rotations
-  createEvents: false
+  minInterval: 5m                 # default
+  createEvents: false             # default
+  maintenanceWindows:
+    enabled: false                # default
+    windows: []                   # default
 
 features:
-  # Enable automatic secret value generation
-  secretGenerator: true
+  secretGenerator: true           # default
+  secretReplicator: true          # default
+  configMapReplicator: true       # default
 
-  # Enable secret replication across namespaces
-  secretReplicator: true
-
-  # Enable ConfigMap replication (pull and push) across namespaces
-  configMapReplicator: true
-
-# Global pull-based replication permissions
-# Allow pull-based replication without the source-side annotation
-# (for source objects you cannot modify)
-globalPullBasedPermissions: []
-  # - fromNamespace: "namespace-a"
-  #   toNamespace: "namespace-b,namespace-c"
-  #   validationPattern: "shoot-*"
-  #   allowConfigMap: true
-  #   allowSecret: false
+globalPullBasedPermissions: []    # default
 ```
 
-### Configuration Reference
+| Option | Default | Notes |
+|--------|---------|-------|
+| `defaults.type` | `string` | **Config-file validation accepts only `string`, `bytes`, `rsa`, `ecdsa`, `ed25519`** ([config.go](pkg/config/config.go)). Post-quantum types (`mlkem`, `mldsa`, `slhdsa`) can only be selected via annotations. |
+| `defaults.length` | `32` | Must be > 0 |
+| `defaults.string.*` | see above | At least one charset class must be `true`; `allowedSpecialChars` non-empty when `specialChars` is `true` |
+| `rotation.minInterval` | `5m` | Guards against tight rotation loops (API load). Shorter `rotate` annotations are rejected per field with a Warning Event. |
+| `rotation.createEvents` | `false` | Normal Events on successful rotation |
+| `rotation.maintenanceWindows` | disabled | See [maintenance windows](#maintenance-windows) |
+| `features.*` | all `true` | Toggles register/skip whole controllers at startup — a disabled feature establishes no watches |
+| `globalPullBasedPermissions` | `[]` | See [global pull-based permissions](#global-pull-based-permissions) |
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `defaults.type` | string | `string` | Default generation type. Valid values: `string`, `bytes`, `rsa`, `ecdsa`, `ed25519`, `mlkem`, `mldsa`, `slhdsa` |
-| `defaults.length` | integer | `32` | Default length for generated values (must be > 0) |
-| `defaults.string.uppercase` | boolean | `true` | Include uppercase letters (A-Z) in generated strings |
-| `defaults.string.lowercase` | boolean | `true` | Include lowercase letters (a-z) in generated strings |
-| `defaults.string.numbers` | boolean | `true` | Include numbers (0-9) in generated strings |
-| `defaults.string.specialChars` | boolean | `false` | Include special characters in generated strings |
-| `defaults.string.allowedSpecialChars` | string | `!@#$%^&*()_+-=[]{}|;:,.<>?` | Which special characters to use when `specialChars` is enabled |
-| `rotation.minInterval` | duration | `5m` | Minimum allowed rotation interval. Rotation intervals below this value trigger a warning and use `minInterval` instead |
-| `rotation.createEvents` | boolean | `false` | Create Normal Events when secrets are rotated. Useful for auditing |
-| `features.secretGenerator` | boolean | `true` | Enable automatic secret value generation feature |
-| `features.secretReplicator` | boolean | `true` | Enable secret replication across namespaces feature |
-| `features.configMapReplicator` | boolean | `true` | Enable ConfigMap replication (pull and push) feature |
-| `globalPullBasedPermissions` | list | `[]` | Global pull-based replication permissions (see [Global Pull-Based Permissions](#global-pull-based-permissions)) |
-| `globalPullBasedPermissions[].fromNamespace` | string | - | Comma-separated list of exact namespace names to replicate from |
-| `globalPullBasedPermissions[].toNamespace` | string | - | Comma-separated list of exact namespace names to replicate to |
-| `globalPullBasedPermissions[].validationPattern` | string | - | Glob pattern matched against the source object name (`*` allows all) |
-| `globalPullBasedPermissions[].allowSecret` | boolean | `false` | Permission applies to Secrets |
-| `globalPullBasedPermissions[].allowConfigMap` | boolean | `false` | Permission applies to ConfigMaps |
+All validation errors fail startup (CrashLoop with the error in the log) —
+misconfiguration is never silently ignored.
 
-### Validation Rules
+### Helm chart values
 
-The operator validates the configuration at startup and will fail to start if:
+Complete `values.yaml` reference
+([values.yaml](deploy/helm/internal-secrets-operator/values.yaml)):
 
-1. **Invalid type**: `defaults.type` must be one of `string`, `bytes`, `rsa`, `ecdsa`, `ed25519`, `mlkem`, `mldsa`, or `slhdsa`
-2. **Invalid length**: `defaults.length` must be a positive integer
-3. **No charset enabled**: At least one of `uppercase`, `lowercase`, `numbers`, or `specialChars` must be `true`
-4. **Empty special chars**: If `specialChars` is `true`, `allowedSpecialChars` must not be empty
-5. **Global permission namespaces**: Each `globalPullBasedPermissions` entry must have non-empty `fromNamespace` and `toNamespace` containing only exact, valid namespace names (no patterns)
-6. **Global permission pattern**: `validationPattern` must be a non-empty, valid glob pattern (use `"*"` to allow all object names)
-7. **Global permission kind**: At least one of `allowSecret` or `allowConfigMap` must be `true`
+| Value | Default |
+|-------|---------|
+| `replicaCount` | `1` |
+| `image.repository` | `docker.io/guidedtraffic/internal-secrets-operator` |
+| `image.pullPolicy` | `IfNotPresent` |
+| `image.tag` | `""` (chart `appVersion`) |
+| `imagePullSecrets` / `nameOverride` / `fullnameOverride` | `[]` / `""` / `""` |
+| `controller.leaderElection` | `true` |
+| `controller.logLevel` | `info` |
+| `config.*` | Operator config, rendered 1:1 — see [configuration file](#configuration-file) |
+| `serviceAccount.create` / `automount` / `annotations` / `name` | `true` / `true` / `{}` / `""` |
+| `rbac.create` | `true` (ClusterRole + leader-election lease permissions) |
+| `rbac.clusterRoleBinding.enabled` | `true` — set `false` to bind per namespace, see [RBAC](#rbac-and-namespace-access) |
+| `podAnnotations` / `podLabels` | `{}` / `{}` |
+| `podSecurityContext` | `runAsNonRoot: true`, seccomp `RuntimeDefault` |
+| `securityContext` | no privilege escalation, drop `ALL` capabilities, read-only rootfs, UID `65532` |
+| `service.type` / `service.port` | `ClusterIP` / `8080` (metrics) |
+| `healthProbe.port` | `8081` |
+| `resources` | requests `10m`/`64Mi`, limits `500m`/`128Mi` |
+| `livenessProbe` / `readinessProbe` | `GET /healthz` / `GET /readyz` on port `health` |
+| `autoscaling.enabled` | `false` — **note: the chart ships no HPA template; enabling this only removes `replicas` from the Deployment** |
+| `volumes` / `volumeMounts` / `nodeSelector` / `tolerations` / `affinity` | `[]` / `[]` / `{}` / `[]` / `{}` |
+| `serviceMonitor.enabled` | `false` (requires Prometheus Operator CRDs) |
+| `serviceMonitor.interval` / `scrapeTimeout` / `labels` | `30s` / `10s` / `{}` |
 
-### Configuration Priority
+### RBAC and namespace access
 
-Configuration values are applied in the following order (highest priority first):
+The operator's ClusterRole
+([rbac.yaml](deploy/helm/internal-secrets-operator/templates/rbac.yaml)):
 
-1. **Per-field annotations** (`iso.gtrfc.com/type.<field>`, `iso.gtrfc.com/length.<field>`)
-2. **Secret-level annotations** (`iso.gtrfc.com/type`, `iso.gtrfc.com/length`)
-3. **Configuration file** (`/etc/secret-operator/config.yaml`)
-4. **Built-in defaults** (used if config file doesn't exist)
+| apiGroups | resources | verbs | Why |
+|-----------|-----------|-------|-----|
+| `""` | `secrets` | get, list, watch, update, patch, create, delete | generation (update/patch), push replication (create), cleanup (delete) |
+| `""` | `configmaps` | get, list, watch, update, patch, create, delete | ConfigMap replication |
+| `""` | `events` | create, patch | leader election events |
+| `events.k8s.io` | `events` | create, patch | controller-runtime `Eventf` (Kubernetes ≥ 1.19) |
+| `coordination.k8s.io` | `leases` | get, list, watch, create, update, patch, delete | leader election |
 
-### Example Configurations
+**Two access modes — the security difference matters:**
 
-#### Passwords with Special Characters
-
-```yaml
-defaults:
-  type: string
-  length: 24
-  string:
-    uppercase: true
-    lowercase: true
-    numbers: true
-    specialChars: true
-    allowedSpecialChars: "!@#$%&*"
-```
-
-#### Numbers Only (e.g., PINs)
-
-```yaml
-defaults:
-  type: string
-  length: 6
-  string:
-    uppercase: false
-    lowercase: false
-    numbers: true
-    specialChars: false
-```
-
-#### Encryption Keys (Raw Bytes)
-
-```yaml
-defaults:
-  type: bytes
-  length: 32
-```
-
-#### Weekly Rotation with Events
-
-```yaml
-defaults:
-  type: string
-  length: 32
-  string:
-    uppercase: true
-    lowercase: true
-    numbers: true
-    specialChars: true
-    allowedSpecialChars: "!@#$%&*"
-
-rotation:
-  minInterval: 1h       # Allow rotations as frequent as hourly
-  createEvents: true    # Log rotation events for auditing
-```
-
-### Manual Deployment
-
-If you're deploying the operator without Helm, create the configuration file manually:
+1. **Cluster-wide (default):** `rbac.clusterRoleBinding.enabled: true`. The
+   operator can read and write Secrets in **every** namespace.
+2. **Restricted:** `rbac.clusterRoleBinding.enabled: false`, then create
+   RoleBindings referencing the ClusterRole in each namespace the operator
+   should manage. The operator only ever touches namespaces where a binding
+   exists.
 
 ```bash
-# Create the config directory
-sudo mkdir -p /etc/secret-operator
-
-# Create the config file
-sudo cat > /etc/secret-operator/config.yaml << 'EOF'
-defaults:
-  type: string
-  length: 32
-  string:
-    uppercase: true
-    lowercase: true
-    numbers: true
-    specialChars: false
-    allowedSpecialChars: "!@#$%^&*()_+-=[]{}|;:,.<>?"
-
-rotation:
-  minInterval: 5m
-  createEvents: false
-EOF
-```
-
-The operator will use built-in defaults if the configuration file doesn't exist.
-
-## Error Handling
-
-When an error occurs (e.g., invalid annotation values), the operator:
-
-1. Does **not** modify the Secret
-2. Creates a **Warning Event** on the Secret with details about the error
-3. Logs the error for debugging
-
-You can view errors with:
-
-```bash
-kubectl describe secret <name>
-```
-
-## RBAC and Namespace Access
-
-By default, the operator is deployed with a **ClusterRoleBinding**, giving it access to Secrets in **all namespaces**. This is convenient for most use cases but may not meet your security requirements.
-
-### Restricting to Specific Namespaces
-
-For environments where you need fine-grained control over which namespaces the operator can access, you can disable the ClusterRoleBinding and create RoleBindings manually in specific namespaces.
-
-#### Step 1: Disable ClusterRoleBinding
-
-Install or upgrade the Helm chart with the ClusterRoleBinding disabled:
-
-```bash
-helm install internal-secrets-operator internal-secrets-operator/internal-secrets-operator \
-  --set rbac.clusterRoleBinding.enabled=false
-```
-
-Or in your `values.yaml`:
-
-```yaml
-rbac:
-  clusterRoleBinding:
-    enabled: false
-```
-
-#### Step 2: Create RoleBindings in Target Namespaces
-
-Create a RoleBinding in each namespace where the operator should have access. The RoleBinding references the ClusterRole (which is still created) but only grants access within that specific namespace.
-
-```yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: internal-secrets-operator
-  namespace: my-app-namespace  # The namespace to grant access to
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: internal-secrets-operator  # Must match the ClusterRole name from the Helm release
-subjects:
-  - kind: ServiceAccount
-    name: internal-secrets-operator  # Must match the ServiceAccount name from the Helm release
-    namespace: internal-secrets-operator  # The namespace where the operator is deployed
-```
-
-> **Note:** If you customized the Helm release name or used `fullnameOverride`, adjust the ClusterRole and ServiceAccount names accordingly.
-
-#### Example: Granting Access to Multiple Namespaces
-
-To grant access to `production`, `staging`, and `development` namespaces:
-
-```bash
-# Create RoleBindings in each namespace
+# Restricted mode: grant access per namespace
 for ns in production staging development; do
   kubectl create rolebinding internal-secrets-operator \
     --clusterrole=internal-secrets-operator \
-    --serviceaccount=internal-secrets-operator:internal-secrets-operator \
+    --serviceaccount=internal-secrets-operator-system:internal-secrets-operator \
     --namespace=$ns
 done
 ```
 
-Or using a manifest:
+> **Note (restricted mode + leader election):** lease permissions are part of
+> the same ClusterRole. With the ClusterRoleBinding disabled you must also
+> create a RoleBinding in the **operator's own namespace**, otherwise leader
+> election (default on) cannot acquire its lease and the operator will not
+> start working.
 
-```yaml
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: internal-secrets-operator
-  namespace: production
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: internal-secrets-operator
-subjects:
-  - kind: ServiceAccount
-    name: internal-secrets-operator
-    namespace: internal-secrets-operator
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: internal-secrets-operator
-  namespace: staging
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: internal-secrets-operator
-subjects:
-  - kind: ServiceAccount
-    name: internal-secrets-operator
-    namespace: internal-secrets-operator
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: internal-secrets-operator
-  namespace: development
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: internal-secrets-operator
-subjects:
-  - kind: ServiceAccount
-    name: internal-secrets-operator
-    namespace: internal-secrets-operator
+> **Note:** watches are cluster-scoped either way; in restricted mode the
+> operator still attempts to list cluster-wide and needs at least one binding
+> to function. Replication across namespaces requires bindings in **both**
+> source and target namespaces.
+
+### Events reference
+
+All conditions are surfaced as Kubernetes Events on the affected object
+(`kubectl describe secret/configmap <name>`):
+
+| Reason | Type | On | Trigger |
+|--------|------|----|---------|
+| `GenerationSucceeded` | Normal | Secret | Fields generated (always emitted) |
+| `GenerationFailed` | Warning | Secret | Generation error (e.g. invalid charset, RSA size too small) — Secret is not modified |
+| `RotationSucceeded` | Normal | Secret | Rotation done — only when `rotation.createEvents: true` |
+| `RotationFailed` | Warning | Secret | `rotate` interval below `rotation.minInterval` — field not rotated |
+| `RotationDeferred` | Normal | Secret | Rotation due outside maintenance windows — deferred to next window |
+| `ConflictingFeatures` | Warning | Secret | `autogenerate` + `replicate-from` on the same Secret |
+| `ReplicationFailed` | Warning | target | Invalid `replicate-from` reference, source missing, consent denied, or update failure |
+| `SourceDeleted` | Warning | target | Pull source is being deleted; target keeps last data |
+| `ReplicationSucceeded` | Normal | target | Pull replication done |
+| `PushFailed` | Warning | source | Target namespace inaccessible, unmanaged same-name object in target, or create/update failure |
+
+### Observability
+
+- Metrics: controller-runtime Prometheus metrics on `:8080` (Helm Service
+  `<fullname>-metrics`; optional ServiceMonitor via `serviceMonitor.enabled`).
+  The endpoint is plain HTTP without authentication — restrict access at the
+  network level if needed.
+- Health: `/healthz` (liveness) and `/readyz` (readiness) on `:8081`.
+- Logging: zap via controller-runtime; level set by `controller.logLevel`
+  (`--zap-log-level`). Secret values are never logged.
+
+## 🛠 Development
+
+```bash
+make build              # compile to bin/manager
+make test               # unit + envtest tests with coverage
+make lint               # golangci-lint v2 + go vet
+make e2e-local          # full E2E: Kind cluster + Helm install + tests
+make run                # run the operator against the current kubeconfig
 ```
 
-### Why Use a ClusterRole with RoleBindings?
-
-You might wonder why we reference a **ClusterRole** in the RoleBinding instead of creating namespace-scoped Roles. This is a common Kubernetes pattern:
-
-- **ClusterRole** defines the permissions (what actions can be performed on which resources)
-- **RoleBinding** grants those permissions within a specific namespace
-
-This approach allows you to:
-1. Define the permissions once (in the ClusterRole)
-2. Selectively grant those permissions per namespace (via RoleBindings)
-3. Easily add/remove namespace access without modifying the operator deployment
-
-## Security
-
-- Uses `crypto/rand` for cryptographically secure random number generation
-- Never logs secret values
-- Follows least-privilege RBAC principles
-- Only modifies Secrets with the specific annotation
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+See [DEVELOPER.md](DEVELOPER.md) for repo layout, reconcile flow internals,
+extension checklists, and the CI/release pipeline. Commits follow
+[Conventional Commits](https://www.conventionalcommits.org/) — releases are
+fully automated via semantic-release.
 
 ## License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+Apache License 2.0 — see [LICENSE](LICENSE).
 
 ## Acknowledgments
 

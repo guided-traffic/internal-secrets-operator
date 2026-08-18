@@ -5,7 +5,7 @@ go 1.26.6
 require (
 	github.com/cloudflare/circl v1.6.5
 	github.com/go-logr/logr v1.4.4
-	github.com/stretchr/testify v1.11.1
+	github.com/stretchr/testify v1.12.0
 	go.uber.org/zap v1.28.0
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.36.3

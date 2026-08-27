@@ -269,6 +269,16 @@
       "automerge": true
     },
     {
+      "description": "conventional-changelog-conventionalcommits >=10.4.0 requires conventional-changelog-writer@9, but @semantic-release/release-notes-generator (stable) still bundles writer@8 and fails in generateNotes. Remove this cap once release-notes-generator@15 (writer@9) is stable and adopted.",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchPackageNames": [
+        "conventional-changelog-conventionalcommits"
+      ],
+      "allowedVersions": "<10.4.0"
+    },
+    {
       "description": "npm: require manual review for major updates",
       "matchManagers": [
         "npm"

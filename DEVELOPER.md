@@ -236,8 +236,10 @@ coverage report (sticky PR comment with delta vs main).
 **On push to main additionally:** the coverage badge JSON is built and
 `semantic-release` runs — analyzing Conventional Commits, tagging
 `v<semver>`, creating the GitHub Release, and committing
-`.github/badges/coverage.json` with `[skip ci]` (via `BOT_PAT` so follow-up
-workflows trigger).
+`.github/badges/coverage.json` with `[skip ci]` (via an installation token of
+the GitHub App `guided-traffic-automation`, minted per job from the secrets
+`APP_CLIENT_ID` + `APP_PRIVATE_KEY` and scoped to this repository, so
+follow-up workflows trigger).
 
 **On the published GitHub Release** (`build.yml`): multi-tag image build
 (`<version>`, `<major>.<minor>`, `<major>`, `sha`, `latest`; linux/amd64) →

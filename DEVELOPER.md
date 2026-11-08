@@ -246,7 +246,9 @@ coverage report (sticky PR comment with delta vs main).
 `.github/badges/coverage.json` with `[skip ci]` (via an installation token of
 the GitHub App `guided-traffic-automation`, minted per job from the secrets
 `APP_CLIENT_ID` + `APP_PRIVATE_KEY` and scoped to this repository, so
-follow-up workflows trigger).
+follow-up workflows trigger). The Node.js version for this job is pinned in
+[.nvmrc](.nvmrc). This job runs only on main, so a broken release toolchain
+does not show up in PR checks.
 
 **On the published GitHub Release** (`build.yml`): multi-tag image build
 (`<version>`, `<major>.<minor>`, `<major>`, `sha`, `latest`; linux/amd64) →
@@ -272,8 +274,15 @@ configuration is [renovate.json](renovate.json).
 
 - **Automerge:** minor, patch and digest updates (and GitHub Actions majors)
   get GitHub auto-merge (squash) and land as soon as all required checks
-  pass. Other majors are labeled `major-update` and wait for review.
-  Security updates (GitHub alerts and OSV) automerge as well.
+  pass. Other majors are labeled `major-update` and wait for review. A
+  Node.js major in `.nvmrc` needs that review most, because no PR check
+  exercises the release job. Node 26 is capped (`allowedVersions: "<26"`)
+  because its binary does not start on the runner image. Security updates (GitHub alerts and OSV)
+  automerge as well.
+- **Lookups that avoid the GitHub API:** the `aquasecurity` org has an IP
+  allow list that rejects the App token from the self-hosted runner, so
+  `aquasecurity/trivy-action` resolves through `git-tags` and the Trivy
+  version through the Go module proxy.
 - **Groups:** `Go version` (the `go` directive in `go.mod`, `GO_VERSION` in
   the workflows, the `golang` builder image in the
   [Containerfile](Containerfile), the badge in

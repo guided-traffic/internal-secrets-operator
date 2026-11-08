@@ -356,6 +356,28 @@
         "Makefile"
       ],
       "semanticCommitType": "chore"
+    },
+    {
+      "description": "The aquasecurity GitHub org enforces an IP allow list that rejects the GitHub App token from the self-hosted runner ('the aquasecurity organization has an IP allow list enabled'). Look up trivy-action tags and digests through anonymous git instead of the GitHub API.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchDepNames": [
+        "aquasecurity/trivy-action"
+      ],
+      "overrideDatasource": "git-tags",
+      "overridePackageName": "https://github.com/aquasecurity/trivy-action"
+    },
+    {
+      "description": "Same IP allow list: look up the Trivy version (trivy-action 'version' input) through the Go module proxy instead of GitHub releases.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchDepNames": [
+        "aquasecurity/trivy"
+      ],
+      "overrideDatasource": "go",
+      "overridePackageName": "github.com/aquasecurity/trivy"
     }
   ],
   "customManagers": [

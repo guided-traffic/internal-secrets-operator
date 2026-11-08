@@ -773,9 +773,14 @@ jobs:
           load: true
           tags: internal-secrets-operator:scan-${{ github.sha }}
 
+      # Pinned to a commit SHA: this job holds Docker Hub credentials (login
+      # above), and a moving ref such as @master runs whatever the upstream
+      # branch contains at that moment. Renovate updates both the SHA and the
+      # Trivy `version`.
       - name: Run Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          version: v0.76.1
           image-ref: internal-secrets-operator:scan-${{ github.sha }}
           format: 'table'
           exit-code: '1'
@@ -786,8 +791,9 @@ jobs:
 
       - name: Run Trivy scan (SARIF output)
         if: always()
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          version: v0.76.1
           image-ref: internal-secrets-operator:scan-${{ github.sha }}
           format: 'sarif'
           output: 'trivy-results.sarif'

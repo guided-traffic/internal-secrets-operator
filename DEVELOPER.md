@@ -256,6 +256,37 @@ placeholders (`0.1.0`) — real versions are injected at package time only.
 issue — because a newly published CVE turns main red without any commit and
 would otherwise silently block every open PR.
 
+## Dependency updates (Renovate)
+
+Renovate runs self-hosted via [renovate.yml](.github/workflows/renovate.yml)
+(daily, 02:00 Europe/Berlin, plus manual `workflow_dispatch`) with an
+installation token of the GitHub App `guided-traffic-automation`; the
+configuration is [renovate.json](renovate.json).
+
+- **Automerge:** minor, patch and digest updates (and GitHub Actions majors)
+  get GitHub auto-merge (squash) and land as soon as all required checks
+  pass. Other majors are labeled `major-update` and wait for review.
+  Security updates (GitHub alerts and OSV) automerge as well.
+- **Groups:** `Go version` (the `go` directive in `go.mod`, `GO_VERSION` in
+  the workflows, the `golang` builder image in the
+  [Containerfile](Containerfile), the badge in
+  [release-template.hbs](.github/release-template.hbs)), `Kubernetes Go
+  modules` (`k8s.io/*`, `sigs.k8s.io/*`), `golang.org/x modules`,
+  `go-openapi/swag modules`, `Go indirect modules`.
+- **Rebase:** open PRs are rebased whenever main moves
+  (`rebaseWhen: behind-base-branch`), so their checks always reflect the
+  current main.
+- **Branch cleanup:** the repository setting "Automatically delete head
+  branches" is on, so a merged `renovate/*` branch never survives into the
+  next update of the same dependency.
+
+⚠️ **Never push to a `renovate/*` branch and never press "Update branch" on a
+Renovate PR.** Any commit not authored by Renovate marks the branch as edited;
+Renovate then stops updating it for good (listed as "PR Edited (Blocked)" on
+the Dependency Dashboard issue). To retry or rebase, tick the checkbox on the
+Dependency Dashboard. To take an update over by hand, close the Renovate PR
+and open your own.
+
 ## Release process
 
 1. Merge PRs with Conventional Commit messages (`fix:` → patch, `feat:` →

@@ -3,8 +3,7 @@
   "extends": [
     "config:recommended",
     ":semanticCommits",
-    ":automergeDigest",
-    ":automergeBranch"
+    ":automergeDigest"
   ],
   "schedule": ["at any time"],
   "timezone": "Europe/Berlin",
@@ -18,7 +17,7 @@
   "prConcurrentLimit": 0,
   "prHourlyLimit": 0,
   "branchConcurrentLimit": 0,
-  "rebaseWhen": "conflicted",
+  "rebaseWhen": "behind-base-branch",
   "osvVulnerabilityAlerts": true,
   "vulnerabilityAlerts": {
     "labels": [
@@ -36,9 +35,20 @@
   ],
   "packageRules": [
     {
-      "description": "Go version: group all Go version updates together to keep them in sync (Containerfile, go.mod, release-template.hbs)",
+      "description": "Go version: group all Go version updates together to keep them in sync (go.mod, GO_VERSION in workflows, release-template.hbs)",
       "matchDatasources": [
         "golang-version"
+      ],
+      "groupName": "Go version",
+      "groupSlug": "go-version"
+    },
+    {
+      "description": "Go version: the golang builder image in the Containerfile joins the same group, so CI, govulncheck and the shipped binary move to a new Go release in one PR. Tracked via the docker datasource, so the image tag only changes once it is published.",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "golang"
       ],
       "groupName": "Go version",
       "groupSlug": "go-version"
@@ -339,20 +349,6 @@
     }
   ],
   "customManagers": [
-    {
-      "description": "Update Go version in Containerfile",
-      "customType": "regex",
-      "managerFilePatterns": [
-        "/^Containerfile$/",
-        "/^Dockerfile$/"
-      ],
-      "matchStrings": [
-        "FROM\\s+golang:(?<currentValue>[\\d.]+)-alpine"
-      ],
-      "depNameTemplate": "golang",
-      "datasourceTemplate": "golang-version",
-      "versioningTemplate": "semver"
-    },
     {
       "description": "Update Go version in go.mod",
       "customType": "regex",

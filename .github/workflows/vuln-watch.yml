@@ -41,6 +41,10 @@ jobs:
 
       - name: Run vulnerability check
         id: vuln
+        # Explicit `shell: bash` runs with `-o pipefail`. The implicit default
+        # (`bash -e`) takes the exit code of `tee`, which reported this step as
+        # green while govulncheck failed.
+        shell: bash
         run: make vuln 2>&1 | tee vuln-report.txt
 
       - name: Report vulnerabilities as issue

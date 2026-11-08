@@ -341,9 +341,45 @@
       "semanticCommitType": "chore"
     },
     {
-      "description": "npm devDependencies (release tooling like semantic-release) are not production code: use 'chore'",
+      "description": "Node.js for the release tooling (.nvmrc): automerge minor and patch updates",
       "matchManagers": [
-        "npm"
+        "nvm"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Node.js majors need review: PR CI does not run the semantic-release job, so a new major is first exercised on main",
+      "matchManagers": [
+        "nvm"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "automerge": false,
+      "labels": [
+        "dependencies",
+        "major-update"
+      ]
+    },
+    {
+      "description": "The Node.js 26 binary exits with code 127 on the self-hosted runner image (setup-node 'Node installation failed', main runs of 2026-11-08), which broke every release while the workflow used 'lts/*'. Cause not analyzed yet. Remove this cap once Node 26 starts on the runner image.",
+      "matchManagers": [
+        "nvm"
+      ],
+      "matchPackageNames": [
+        "node"
+      ],
+      "allowedVersions": "<26"
+    },
+    {
+      "description": "npm devDependencies and the Node.js version (release tooling like semantic-release) are not production code: use 'chore'",
+      "matchManagers": [
+        "npm",
+        "nvm"
       ],
       "semanticCommitType": "chore"
     },

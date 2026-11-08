@@ -852,10 +852,13 @@ jobs:
             echo "⚠️ Coverage badge not found, using existing file"
           fi
 
+      # Pinned in .nvmrc (Renovate-managed). "lts/*" moved to Node 26 when it
+      # became LTS, and that binary does not run on the self-hosted runner
+      # image (exit code 127), which broke every release.
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "lts/*"
+          node-version-file: .nvmrc
 
       - name: Install dependencies
         run: npm install

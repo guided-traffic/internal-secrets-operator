@@ -47,18 +47,43 @@ jobs:
         shell: bash
         run: make vuln 2>&1 | tee vuln-report.txt
 
+      # github-script instead of the gh CLI: the self-hosted runner image does
+      # not ship gh, so this step used to fail with "gh: command not found".
       - name: Report vulnerabilities as issue
-        if: failure()
+        if: failure() && steps.vuln.outcome == 'failure'
+        uses: actions/github-script@v9
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TITLE: 'govulncheck: main is affected by known vulnerabilities'
-        run: |
-          set -euo pipefail
-          EXISTING=$(gh issue list --state open --search "$TITLE in:title" --json number -q '.[0].number // ""')
-          BODY=$(printf 'govulncheck failed on `main` (run: %s/%s/actions/runs/%s).\n\nEvery open PR is blocked until this is fixed, because "Vulnerability Check" is a required status check.\n\n```\n%s\n```\n' \
-            "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$(tail -c 40000 vuln-report.txt)")
-          if [ -n "$EXISTING" ]; then
-            gh issue comment "$EXISTING" --body "$BODY"
-          else
-            gh issue create --title "$TITLE" --label dependencies --label security --body "$BODY"
-          fi
+        with:
+          script: |
+            const fs = require('fs');
+            const title = process.env.TITLE;
+            const report = fs.readFileSync('vuln-report.txt', 'utf8');
+            // Vulnerability IDs come first, the summary line last; issue bodies
+            // are capped at 65536 characters.
+            const excerpt = report.length > 40000
+              ? `${report.slice(0, 37000)}\n[...]\n${report.slice(-3000)}`
+              : report;
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              `govulncheck failed on \`main\` (run: ${runUrl}).`,
+              '',
+              'Every open PR is blocked until this is fixed, because "Vulnerability Check" is a required status check.',
+              '',
+              '```',
+              excerpt,
+              '```',
+            ].join('\n');
+            const open = await github.paginate(github.rest.issues.listForRepo, {
+              ...context.repo, state: 'open', per_page: 100,
+            });
+            const existing = open.find((i) => !i.pull_request && i.title === title);
+            if (existing) {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: existing.number, body });
+              core.info(`Commented on #${existing.number}`);
+            } else {
+              const { data } = await github.rest.issues.create({
+                ...context.repo, title, body, labels: ['dependencies', 'security'],
+              });
+              core.info(`Created #${data.number}`);
+            }

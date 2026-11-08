@@ -303,7 +303,7 @@
       ]
     },
     {
-      "description": "Custom regex managers (Go version, envtest K8s version, setup-envtest): automerge minor and patch updates",
+      "description": "Custom regex managers (Go version, envtest K8s version, setup-envtest, Makefile tools): automerge minor and patch updates",
       "matchManagers": [
         "custom.regex"
       ],
@@ -346,6 +346,16 @@
         "npm"
       ],
       "semanticCommitType": "chore"
+    },
+    {
+      "description": "Makefile pins (lint/security tools, setup-envtest, envtest Kubernetes) are build and test tooling, not production code: use 'chore'",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchFileNames": [
+        "Makefile"
+      ],
+      "semanticCommitType": "chore"
     }
   ],
   "customManagers": [
@@ -373,7 +383,7 @@
       ],
       "depNameTemplate": "golang",
       "datasourceTemplate": "golang-version",
-      "versioningTemplate": "semver",
+      "versioningTemplate": "semver-coerced",
       "extractVersionTemplate": "^(?<version>\\d+\\.\\d+)"
     },
     {
@@ -414,8 +424,18 @@
       ],
       "depNameTemplate": "sigs.k8s.io/controller-runtime",
       "datasourceTemplate": "go",
-      "versioningTemplate": "semver",
+      "versioningTemplate": "semver-coerced",
       "extractVersionTemplate": "^v(?<version>\\d+\\.\\d+)"
+    },
+    {
+      "description": "Go tools pinned in the Makefile, annotated with '# renovate: datasource=<datasource> depName=<module>' on the line above '<NAME>_VERSION ?= <version>'",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^Makefile$/"
+      ],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)\\s*\\n[A-Z0-9_]+_VERSION\\s*\\?=\\s*(?<currentValue>\\S+)"
+      ]
     }
   ],
   "gomod": {

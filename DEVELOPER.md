@@ -201,13 +201,20 @@ Three watches per replicator:
 | Build | `make build` | `fmt` + `vet` + compile to `bin/manager` |
 | Run locally | `make run` | uses current kubeconfig, `--zap-log-level=debug` |
 | Unit tests | `make test-unit` | `-short`, no envtest binaries needed for pkg tests |
-| All tests + coverage | `make test` | downloads envtest assets (K8s 1.36.x) into `./bin` |
+| All tests + coverage | `make test` | downloads envtest assets (latest patch of the `ENVTEST_K8S_VERSION` minor in the [Makefile](Makefile)) into `./bin` |
 | Integration tests | `make test-integration` | envtest (real API server + etcd, no cluster), build tag `integration`, timeout 60m |
 | E2E | `make e2e-local` | Kind cluster `secret-operator-test` + Helm install + `make test-e2e` + teardown |
 | Lint | `make lint` | golangci-lint v2 (11 linters, see [.golangci.yml](.golangci.yml)) + `go vet` |
 | Complexity | `make cyclo` | gocyclo, threshold 15, tests excluded |
-| Security scan | `make gosec` | gosec v2.22.0 |
+| Security scan | `make gosec` | gosec |
 | Vulnerabilities | `make vuln` | govulncheck |
+
+Lint and security tools (golangci-lint, gosec, govulncheck, gocyclo) and
+setup-envtest are pinned once in the "Tool Versions" block at the top of the
+[Makefile](Makefile); CI only calls the `make` targets. Each target installs
+its tool into `./bin` under a file name that carries the tool version and the
+Go toolchain (e.g. `bin/gosec-v2.30.0-go1.27.3`), so a new pin or a Go
+upgrade installs a fresh binary. Tools on your `PATH` are not used.
 | Coverage badge | `make coverage-json` | writes `.github/badges/coverage.json` |
 | Container image | `make docker-build` | `IMG` defaults to `ghcr.io/guided-traffic/internal-secrets-operator:latest` (dev only — releases go to Docker Hub, see below) |
 
@@ -255,6 +262,40 @@ placeholders (`0.1.0`) — real versions are injected at package time only.
 `make vuln` against main; on failure it opens/updates a deduplicated GitHub
 issue — because a newly published CVE turns main red without any commit and
 would otherwise silently block every open PR.
+
+## Dependency updates (Renovate)
+
+Renovate runs self-hosted via [renovate.yml](.github/workflows/renovate.yml)
+(daily, 02:00 Europe/Berlin, plus manual `workflow_dispatch`) with an
+installation token of the GitHub App `guided-traffic-automation`; the
+configuration is [renovate.json](renovate.json).
+
+- **Automerge:** minor, patch and digest updates (and GitHub Actions majors)
+  get GitHub auto-merge (squash) and land as soon as all required checks
+  pass. Other majors are labeled `major-update` and wait for review.
+  Security updates (GitHub alerts and OSV) automerge as well.
+- **Groups:** `Go version` (the `go` directive in `go.mod`, `GO_VERSION` in
+  the workflows, the `golang` builder image in the
+  [Containerfile](Containerfile), the badge in
+  [release-template.hbs](.github/release-template.hbs)), `Kubernetes Go
+  modules` (`k8s.io/*`, `sigs.k8s.io/*`), `golang.org/x modules`,
+  `go-openapi/swag modules`, `Go indirect modules`.
+- **Makefile tools:** a `# renovate: datasource=go depName=<module>` comment
+  above a `<NAME>_VERSION ?=` line puts that pin under Renovate; add one for
+  every new tool. These updates use the `chore` commit type.
+- **Rebase:** open PRs are rebased whenever main moves
+  (`rebaseWhen: behind-base-branch`), so their checks always reflect the
+  current main.
+- **Branch cleanup:** the repository setting "Automatically delete head
+  branches" is on, so a merged `renovate/*` branch never survives into the
+  next update of the same dependency.
+
+⚠️ **Never push to a `renovate/*` branch and never press "Update branch" on a
+Renovate PR.** Any commit not authored by Renovate marks the branch as edited;
+Renovate then stops updating it for good (listed as "PR Edited (Blocked)" on
+the Dependency Dashboard issue). To retry or rebase, tick the checkbox on the
+Dependency Dashboard. To take an update over by hand, close the Renovate PR
+and open your own.
 
 ## Release process
 

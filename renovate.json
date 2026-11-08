@@ -3,8 +3,7 @@
   "extends": [
     "config:recommended",
     ":semanticCommits",
-    ":automergeDigest",
-    ":automergeBranch"
+    ":automergeDigest"
   ],
   "schedule": ["at any time"],
   "timezone": "Europe/Berlin",
@@ -18,7 +17,7 @@
   "prConcurrentLimit": 0,
   "prHourlyLimit": 0,
   "branchConcurrentLimit": 0,
-  "rebaseWhen": "conflicted",
+  "rebaseWhen": "behind-base-branch",
   "osvVulnerabilityAlerts": true,
   "vulnerabilityAlerts": {
     "labels": [
@@ -36,9 +35,20 @@
   ],
   "packageRules": [
     {
-      "description": "Go version: group all Go version updates together to keep them in sync (Containerfile, go.mod, release-template.hbs)",
+      "description": "Go version: group all Go version updates together to keep them in sync (go.mod, GO_VERSION in workflows, release-template.hbs)",
       "matchDatasources": [
         "golang-version"
+      ],
+      "groupName": "Go version",
+      "groupSlug": "go-version"
+    },
+    {
+      "description": "Go version: the golang builder image in the Containerfile joins the same group, so CI, govulncheck and the shipped binary move to a new Go release in one PR. Tracked via the docker datasource, so the image tag only changes once it is published.",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "golang"
       ],
       "groupName": "Go version",
       "groupSlug": "go-version"
@@ -293,7 +303,7 @@
       ]
     },
     {
-      "description": "Custom regex managers (Go version, envtest K8s version, setup-envtest): automerge minor and patch updates",
+      "description": "Custom regex managers (Go version, envtest K8s version, setup-envtest, Makefile tools): automerge minor and patch updates",
       "matchManagers": [
         "custom.regex"
       ],
@@ -336,23 +346,19 @@
         "npm"
       ],
       "semanticCommitType": "chore"
+    },
+    {
+      "description": "Makefile pins (lint/security tools, setup-envtest, envtest Kubernetes) are build and test tooling, not production code: use 'chore'",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchFileNames": [
+        "Makefile"
+      ],
+      "semanticCommitType": "chore"
     }
   ],
   "customManagers": [
-    {
-      "description": "Update Go version in Containerfile",
-      "customType": "regex",
-      "managerFilePatterns": [
-        "/^Containerfile$/",
-        "/^Dockerfile$/"
-      ],
-      "matchStrings": [
-        "FROM\\s+golang:(?<currentValue>[\\d.]+)-alpine"
-      ],
-      "depNameTemplate": "golang",
-      "datasourceTemplate": "golang-version",
-      "versioningTemplate": "semver"
-    },
     {
       "description": "Update Go version in go.mod",
       "customType": "regex",
@@ -377,7 +383,7 @@
       ],
       "depNameTemplate": "golang",
       "datasourceTemplate": "golang-version",
-      "versioningTemplate": "semver",
+      "versioningTemplate": "semver-coerced",
       "extractVersionTemplate": "^(?<version>\\d+\\.\\d+)"
     },
     {
@@ -418,8 +424,18 @@
       ],
       "depNameTemplate": "sigs.k8s.io/controller-runtime",
       "datasourceTemplate": "go",
-      "versioningTemplate": "semver",
+      "versioningTemplate": "semver-coerced",
       "extractVersionTemplate": "^v(?<version>\\d+\\.\\d+)"
+    },
+    {
+      "description": "Go tools pinned in the Makefile, annotated with '# renovate: datasource=<datasource> depName=<module>' on the line above '<NAME>_VERSION ?= <version>'",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^Makefile$/"
+      ],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)\\s*\\n[A-Z0-9_]+_VERSION\\s*\\?=\\s*(?<currentValue>\\S+)"
+      ]
     }
   ],
   "gomod": {

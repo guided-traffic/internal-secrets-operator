@@ -13,7 +13,7 @@ ENVTEST_K8S_MINOR = $(shell echo $(ENVTEST_K8S_VERSION) | sed 's/\.[0-9]*$$/.x/'
 # of installing tools itself. Renovate updates the annotated lines (custom
 # managers in renovate.json); kustomize is only used for local deployment.
 KUSTOMIZE_VERSION ?= v5.3.0
-ENVTEST_VERSION ?= release-0.22
+ENVTEST_VERSION ?= release-0.25
 # renovate: datasource=go depName=github.com/golangci/golangci-lint/v2
 GOLANGCI_LINT_VERSION ?= v2.15.0
 # renovate: datasource=go depName=github.com/securego/gosec/v2

@@ -79,7 +79,7 @@
       ]
     },
     {
-      "description": "Go modules: indirect deps must stay updatable because govulncheck gates the whole module graph; grouped into a single PR to limit noise",
+      "description": "Go modules: indirect deps stay disabled (Renovate's gomod default); a vulnerability in one still yields its own [SECURITY] PR via osvVulnerabilityAlerts. Never add enabled:false for indirect deps: Renovate re-enables a dep for a vulnerability alert only when it is disabled by default, not by a package rule. This group is dormant until indirect updates are enabled",
       "matchManagers": [
         "gomod"
       ],
@@ -90,7 +90,7 @@
       "groupSlug": "go-indirect-modules"
     },
     {
-      "description": "Go modules: automerge indirect minor and patch updates after CI passes",
+      "description": "Go modules: automerge indirect minor and patch updates after CI passes (dormant while indirect deps stay disabled)",
       "matchManagers": [
         "gomod"
       ],
@@ -105,7 +105,7 @@
       "automerge": true
     },
     {
-      "description": "Go modules: require manual review for indirect major updates",
+      "description": "Go modules: require manual review for indirect major updates (dormant while indirect deps stay disabled)",
       "matchManagers": [
         "gomod"
       ],

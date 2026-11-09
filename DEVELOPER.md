@@ -288,7 +288,16 @@ configuration is [renovate.json](renovate.json).
   [Containerfile](Containerfile), the badge in
   [release-template.hbs](.github/release-template.hbs)), `Kubernetes Go
   modules` (`k8s.io/*`, `sigs.k8s.io/*`), `golang.org/x modules`,
-  `go-openapi/swag modules`, `Go indirect modules`.
+  `go-openapi/swag modules`.
+- **Indirect Go modules** (`// indirect` in [go.mod](go.mod)) are not
+  updated; that is Renovate's default for `gomod`. A vulnerability in one
+  still produces its own `[SECURITY]` PR through `osvVulnerabilityAlerts`,
+  which re-enables just that dependency (as for `golang.org/x/net` in #207).
+  Never add `enabled: false` for indirect deps to renovate.json: Renovate
+  re-enables a dependency for a vulnerability alert only when it is disabled
+  by default, not when a package rule disables it. The indirect group and
+  automerge rules stay in place but dormant, so enabling indirect updates
+  later takes one `enabled: true` rule.
 - **Makefile tools:** a `# renovate: datasource=go depName=<module>` comment
   above a `<NAME>_VERSION ?=` line puts that pin under Renovate; add one for
   every new tool. These updates use the `chore` commit type.
